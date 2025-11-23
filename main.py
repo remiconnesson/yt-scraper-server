@@ -1,9 +1,9 @@
+import asyncio
 import logging
 import os
 import re
 import shutil
 import sys
-import threading
 import time
 from dataclasses import dataclass
 from typing import Dict, Optional
@@ -31,7 +31,8 @@ app.mount("/files", StaticFiles(directory=DOWNLOAD_DIR), name="files")
 
 # --- GLOBAL STATE ---
 JOB_PROGRESS = {}
-PROGRESS_LOCK = threading.Lock()
+PROGRESS_LOCK: asyncio.Lock | None = None
+EVENT_LOOP: asyncio.AbstractEventLoop | None = None
 
 # --- LOGGING ---
 logging.basicConfig(
@@ -55,6 +56,7 @@ AUDIO_DOWNLOAD_THREADS = 8
 DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 PARALLEL_CHUNK_SIZE = 1024 * 1024
 SINGLE_THREAD_CHUNK_SIZE = 32 * 1024
+DOWNLOAD_RETENTION_HOURS = int(os.getenv("DOWNLOAD_RETENTION_HOURS", "24"))
 
 # --- HELPERS ---
 
@@ -68,10 +70,23 @@ class DownloadResult:
     path: Optional[str] = None
 
 
-def update_progress(filename: str, bytes_added: int = 0, total_size: Optional[int] = None, status: Optional[str] = None) -> None:
-    """Update the in-memory progress tracker for a file download."""
+async def _ensure_progress_lock() -> asyncio.Lock:
+    """Lazy-create the asyncio lock after the event loop is running."""
 
-    with PROGRESS_LOCK:
+    global PROGRESS_LOCK
+    if PROGRESS_LOCK is None:
+        PROGRESS_LOCK = asyncio.Lock()
+    return PROGRESS_LOCK
+
+
+async def _update_progress(
+    filename: str,
+    bytes_added: int = 0,
+    total_size: Optional[int] = None,
+    status: Optional[str] = None,
+) -> None:
+    lock = await _ensure_progress_lock()
+    async with lock:
         if filename not in JOB_PROGRESS:
             JOB_PROGRESS[filename] = {"total": 0, "current": 0, "status": "init", "start_time": time.time()}
 
@@ -83,6 +98,24 @@ def update_progress(filename: str, bytes_added: int = 0, total_size: Optional[in
 
         if status:
             JOB_PROGRESS[filename]["status"] = status
+
+
+def update_progress(
+    filename: str,
+    bytes_added: int = 0,
+    total_size: Optional[int] = None,
+    status: Optional[str] = None,
+) -> None:
+    """Thread-safe wrapper to update download progress from sync code paths."""
+
+    if EVENT_LOOP and EVENT_LOOP.is_running():
+        future = asyncio.run_coroutine_threadsafe(
+            _update_progress(filename, bytes_added=bytes_added, total_size=total_size, status=status),
+            EVENT_LOOP,
+        )
+        future.result()
+    else:
+        raise RuntimeError("Event loop not initialized; progress updates require FastAPI startup to complete.")
 
 
 def get_file_size(url: str, headers: Dict[str, str], proxies: Dict[str, str]) -> int:
@@ -186,6 +219,20 @@ def _get_default_headers() -> Dict[str, str]:
 
 def _should_use_single_thread(total_size: int) -> bool:
     return total_size < MIN_SIZE_FOR_PARALLEL_DOWNLOAD
+
+
+def cleanup_old_downloads(retention_hours: int = DOWNLOAD_RETENTION_HOURS) -> None:
+    """Delete downloaded files older than the configured retention window."""
+
+    cutoff = time.time() - (retention_hours * 3600)
+    for filename in os.listdir(DOWNLOAD_DIR):
+        path = os.path.join(DOWNLOAD_DIR, filename)
+        try:
+            if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
+                os.remove(path)
+                logger.info(f"Removed expired download: {filename}")
+        except Exception as exc:
+            logger.warning(f"Failed to remove {filename}: {exc}")
 
 
 def download_chunk(url: str, headers: Dict[str, str], start: int, end: int, part_filename: str, proxies: Dict[str, str], parent_filename: str) -> bool:
@@ -300,44 +347,56 @@ def download_file_single(url: str, filename: str, proxies: Dict[str, str]) -> Do
         update_progress(filename, status="failed")
         return DownloadResult(success=False, error=str(e))
 
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    """Capture the running event loop and trigger cleanup tasks."""
+
+    global EVENT_LOOP
+    EVENT_LOOP = asyncio.get_running_loop()
+    await asyncio.to_thread(cleanup_old_downloads)
+
 def process_video_task(video_url: str):
     logger.info(f"Job Started: {video_url}")
-    vid_url, aud_url, title = get_stream_urls(video_url)
+    try:
+        vid_url, aud_url, title = get_stream_urls(video_url)
 
-    if vid_url and aud_url:
-        safe_title = "".join([c for c in title if c.isalpha() or c.isdigit() or c==' ']).rstrip()
+        if vid_url and aud_url:
+            safe_title = "".join([c for c in title if c.isalpha() or c.isdigit() or c==' ']).rstrip()
 
-        # CONCURRENT DOWNLOADS
-        # We use a ThreadPool to run both downloads at the exact same time
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            # Submit both jobs
-            # Video: 32 threads for max saturation
-            video_future = executor.submit(
-                download_file_parallel,
-                vid_url,
-                f"{safe_title}_video.mp4",
-                num_threads=VIDEO_DOWNLOAD_THREADS,
-            )
-            # Audio: 8 threads (plenty for small files)
-            audio_future = executor.submit(
-                download_file_parallel,
-                aud_url,
-                f"{safe_title}_audio.m4a",
-                num_threads=AUDIO_DOWNLOAD_THREADS,
-            )
+            # CONCURRENT DOWNLOADS
+            # We use a ThreadPool to run both downloads at the exact same time
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                # Submit both jobs
+                # Video: 32 threads for max saturation
+                video_future = executor.submit(
+                    download_file_parallel,
+                    vid_url,
+                    f"{safe_title}_video.mp4",
+                    num_threads=VIDEO_DOWNLOAD_THREADS,
+                )
+                # Audio: 8 threads (plenty for small files)
+                audio_future = executor.submit(
+                    download_file_parallel,
+                    aud_url,
+                    f"{safe_title}_audio.m4a",
+                    num_threads=AUDIO_DOWNLOAD_THREADS,
+                )
 
-            # Wait for completion
-            video_result = video_future.result()
-            audio_result = audio_future.result()
+                # Wait for completion
+                video_result = video_future.result()
+                audio_result = audio_future.result()
 
-        for kind, result in {"video": video_result, "audio": audio_result}.items():
-            if not result.success:
-                logger.error(f"{kind.title()} download failed: {result.error}")
-                return
+            for kind, result in {"video": video_result, "audio": audio_result}.items():
+                if not result.success:
+                    logger.error(f"{kind.title()} download failed: {result.error}")
+                    return
 
-        logger.info(f"Job Finished: {safe_title}")
-    else:
-        logger.error("Job Failed during Phase A")
+            logger.info(f"Job Finished: {safe_title}")
+        else:
+            logger.error("Job Failed during Phase A")
+    finally:
+        cleanup_old_downloads()
 
 # --- ROUTES ---
 
@@ -351,14 +410,15 @@ def scrape(url: str, background_tasks: BackgroundTasks):
     return {"message": "Download started", "url": url, "track": "/progress"}
 
 @app.get("/progress")
-def get_progress():
+async def get_progress():
     results = {}
-    with PROGRESS_LOCK:
+    lock = await _ensure_progress_lock()
+    async with lock:
         for filename, data in JOB_PROGRESS.items():
             pct = 0
             if data['total'] > 0:
                 pct = (data['current'] / data['total']) * 100
-            
+
             results[filename] = {
                 "status": data['status'],
                 "percent": round(pct, 1),
