@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, TypedDict, Union
 
-import cv2
 import imagehash
 import numpy as np
 from PIL import Image
@@ -176,6 +175,8 @@ class FrameStreamer:
         Raises:
             ValueError: If video cannot be opened or has invalid properties
         """
+        import cv2
+
         cap = cv2.VideoCapture(self.path)
         if not cap.isOpened():
             raise ValueError(f"Could not open video file: {self.path}")

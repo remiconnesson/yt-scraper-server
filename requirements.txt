@@ -8,3 +8,4 @@ imagehash
 numpy
 python-dotenv
 pydantic
+click>=8.1.7

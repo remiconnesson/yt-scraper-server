@@ -612,9 +612,10 @@ wheels = [
 [[package]]
 name = "scraper"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "boto3" },
+    { name = "click" },
     { name = "fastapi" },
     { name = "imagehash" },
     { name = "numpy" },
@@ -637,6 +638,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "boto3" },
+    { name = "click", specifier = ">=8.1.7" },
     { name = "fastapi", specifier = ">=0.121.3" },
     { name = "imagehash" },
     { name = "numpy" },
