@@ -1,13 +1,12 @@
 """
-S3 storage structure:
+Blob storage structure:
 
-s3://bucket-name/
-  video/
-    {video_id}/
-      images/
-        segment_001.webp
-        segment_002.webp
-      metadata.json
+video/
+  {video_id}/
+    images/
+      segment_001.webp
+      segment_002.webp
+    metadata.json
 
 Where `video_id` is the YouTube video ID for YouTube sources or the first 16
 characters of the SHA256 hash for S3-sourced videos.
@@ -15,6 +14,7 @@ characters of the SHA256 hash for S3-sourced videos.
 
 import asyncio
 import json
+import os
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from enum import Enum
@@ -25,6 +25,7 @@ from extract_slides.video_analyzer import FrameStreamer, Segment, SegmentDetecto
 
 import cv2
 import numpy as np
+import requests
 from PIL import Image
 from pydantic import BaseModel
 
@@ -123,22 +124,23 @@ def compress_image(
     return buffer.getvalue(), compression_info
 
 
-def upload_to_s3(
+def upload_to_vercel_blob(
     data: bytes,
     key: str,
     content_type: str = "image/webp",
     metadata: Optional[dict[str, str]] = None,
 ) -> str:
-    """Upload compressed image bytes to S3 with metadata.
+    """Upload compressed image bytes to Vercel Blob with metadata.
 
-    This function should use a boto3 S3 client to upload the provided data to
-    the configured bucket, applying the supplied key and content type headers.
-    When metadata is provided, it should be stored as object metadata. Upload
-    failures should surface clear error messages to aid debugging.
+    The upload uses the Vercel Blob REST API with a read/write or write-only
+    token provided via ``VERCEL_BLOB_READ_WRITE_TOKEN`` or
+    ``VERCEL_BLOB_WRITE_ONLY_TOKEN``. Objects are uploaded with public access
+    enabled so that returned URLs are directly accessible. Metadata, when
+    supplied, is serialized to JSON and attached to the blob for traceability.
 
     Args:
         data: Compressed image bytes to upload.
-        key: Destination object key within the bucket.
+        key: Destination object key within the blob store.
         content_type: MIME type for the uploaded object; defaults to WebP.
         metadata: Optional dictionary of metadata to persist alongside the
             object.
@@ -146,7 +148,39 @@ def upload_to_s3(
     Returns:
         Public URL of the uploaded object.
     """
-    raise NotImplementedError("S3 upload helper is not implemented yet.")
+    token = os.getenv("VERCEL_BLOB_READ_WRITE_TOKEN") or os.getenv(
+        "VERCEL_BLOB_WRITE_ONLY_TOKEN"
+    )
+
+    if not token:
+        raise RuntimeError(
+            "Vercel Blob token missing; set VERCEL_BLOB_READ_WRITE_TOKEN or "
+            "VERCEL_BLOB_WRITE_ONLY_TOKEN"
+        )
+
+    form_fields: dict[str, str] = {
+        "access": "public",
+        "slug": key,
+        "contentType": content_type,
+    }
+    if metadata:
+        form_fields["metadata"] = json.dumps(metadata)
+
+    response = requests.post(
+        "https://api.vercel.com/v2/blobs",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"file": (key, data, content_type)},
+        data=form_fields,
+        timeout=30,
+    )
+    response.raise_for_status()
+
+    payload = response.json()
+    url = payload.get("url")
+    if not url:
+        raise ValueError("Vercel Blob response did not include a URL")
+
+    return url
 
 
 async def update_job_status(
@@ -329,16 +363,16 @@ async def _upload_segments(
     video_id: str,
     job_id: str,
 ) -> list[dict[str, Any]]:
-    """Upload compressed segment frames to S3 and report progress."""
+    """Upload compressed segment frames to Vercel Blob and report progress."""
 
     total_static = len(compressed_segments) or 1
     segment_metadata: list[dict[str, Any]] = []
 
     for idx, segment, compressed_frame, compression_info in compressed_segments:
-        s3_key = f"video/{video_id}/images/segment_{idx:03d}.webp"
-        image_url = upload_to_s3(
+        blob_key = f"video/{video_id}/images/segment_{idx:03d}.webp"
+        image_url = upload_to_vercel_blob(
             compressed_frame,
-            s3_key,
+            blob_key,
             metadata={
                 "video_id": video_id,
                 "segment_id": str(idx),

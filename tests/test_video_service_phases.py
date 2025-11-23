@@ -218,10 +218,10 @@ class TestUploadSegments:
         asyncio.run(_clear())
 
     @pytest.mark.asyncio
-    @patch("video_service.upload_to_s3")
+    @patch("video_service.upload_to_vercel_blob")
     async def test_upload_segments_success(self, mock_upload):
         """Test successful upload of compressed segments."""
-        mock_upload.return_value = "https://s3.example.com/video/abc/images/segment_001.webp"
+        mock_upload.return_value = "https://blob.vercel-storage.com/video/abc/images/segment_001.webp"
 
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
         compressed_segments = [
@@ -257,16 +257,16 @@ class TestUploadSegments:
         assert metadata[0]["end_time"] == 5.0
         assert metadata[0]["duration"] == 5.0
         assert metadata[0]["frame_count"] == 3
-        assert metadata[0]["image_url"] == "https://s3.example.com/video/abc/images/segment_001.webp"
+        assert metadata[0]["image_url"] == "https://blob.vercel-storage.com/video/abc/images/segment_001.webp"
         assert metadata[0]["compression_info"]["quality"] == 90
 
         assert mock_upload.call_count == 2
 
     @pytest.mark.asyncio
-    @patch("video_service.upload_to_s3")
-    async def test_upload_segments_correct_s3_keys(self, mock_upload):
-        """Test that S3 keys are formatted correctly."""
-        mock_upload.return_value = "https://s3.example.com/url"
+    @patch("video_service.upload_to_vercel_blob")
+    async def test_upload_segments_correct_blob_keys(self, mock_upload):
+        """Test that blob keys are formatted correctly."""
+        mock_upload.return_value = "https://blob.vercel-storage.com/url"
 
         compressed_segments = [
             (
@@ -279,15 +279,15 @@ class TestUploadSegments:
 
         await _upload_segments(compressed_segments, "my-video-id", "job-123")
 
-        # Verify S3 key format
+        # Verify blob key format
         call_args = mock_upload.call_args
         assert call_args[0][1] == "video/my-video-id/images/segment_005.webp"
 
     @pytest.mark.asyncio
-    @patch("video_service.upload_to_s3")
+    @patch("video_service.upload_to_vercel_blob")
     async def test_upload_segments_includes_metadata(self, mock_upload):
-        """Test that S3 metadata is included."""
-        mock_upload.return_value = "https://s3.example.com/url"
+        """Test that blob metadata is included."""
+        mock_upload.return_value = "https://blob.vercel-storage.com/url"
 
         compressed_segments = [
             (
@@ -308,12 +308,12 @@ class TestUploadSegments:
         assert metadata["end_time"] == "6.5"
 
     @pytest.mark.asyncio
-    @patch("video_service.upload_to_s3")
+    @patch("video_service.upload_to_vercel_blob")
     async def test_upload_segments_updates_progress(self, mock_upload):
         """Test that progress updates during upload."""
         from video_service import JOBS, JOBS_LOCK
 
-        mock_upload.return_value = "https://s3.example.com/url"
+        mock_upload.return_value = "https://blob.vercel-storage.com/url"
 
         compressed_segments = [
             (1, Segment(type="static", frames=[1]), b"data", {"quality": 90}),
@@ -361,7 +361,7 @@ class TestExtractAndProcessFramesIntegration:
         metadata = [
             {
                 "segment_id": 1,
-                "image_url": "https://s3.example.com/url",
+                "image_url": "https://blob.vercel-storage.com/url",
                 "compression_info": {"quality": 90},
             }
         ]
