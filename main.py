@@ -14,7 +14,6 @@ import requests
 import yt_dlp
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI
-from fastapi.staticfiles import StaticFiles
 
 # Load environment variables
 load_dotenv()
@@ -27,7 +26,6 @@ DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
 LOG_FILE = os.path.join(BASE_DIR, "app.log")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-app.mount("/files", StaticFiles(directory=DOWNLOAD_DIR), name="files")
 
 # --- GLOBAL STATE ---
 JOB_PROGRESS = {}
@@ -100,6 +98,14 @@ async def _update_progress(
             JOB_PROGRESS[filename]["status"] = status
 
 
+async def _remove_progress_entry(filename: str) -> None:
+    """Drop a progress entry if it exists, guarding with the async lock."""
+
+    lock = await _ensure_progress_lock()
+    async with lock:
+        JOB_PROGRESS.pop(filename, None)
+
+
 def update_progress(
     filename: str,
     bytes_added: int = 0,
@@ -116,6 +122,16 @@ def update_progress(
         future.result()
     else:
         raise RuntimeError("Event loop not initialized; progress updates require FastAPI startup to complete.")
+
+
+def remove_progress_entry(filename: str) -> None:
+    """Thread-safe wrapper to prune a progress record from sync code paths."""
+
+    if EVENT_LOOP and EVENT_LOOP.is_running():
+        future = asyncio.run_coroutine_threadsafe(_remove_progress_entry(filename), EVENT_LOOP)
+        future.result()
+    else:
+        logger.warning("Event loop not initialized; cannot remove progress entry safely.")
 
 
 def get_file_size(url: str, headers: Dict[str, str], proxies: Dict[str, str]) -> int:
@@ -222,7 +238,11 @@ def _should_use_single_thread(total_size: int) -> bool:
 
 
 def cleanup_old_downloads(retention_hours: int = DOWNLOAD_RETENTION_HOURS) -> None:
-    """Delete downloaded files older than the configured retention window."""
+    """Delete downloaded files older than the configured retention window.
+
+    Progress entries for removed files are pruned to keep API responses aligned
+    with available downloads.
+    """
 
     cutoff = time.time() - (retention_hours * 3600)
     for filename in os.listdir(DOWNLOAD_DIR):
@@ -230,6 +250,7 @@ def cleanup_old_downloads(retention_hours: int = DOWNLOAD_RETENTION_HOURS) -> No
         try:
             if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
                 os.remove(path)
+                remove_progress_entry(filename)
                 logger.info(f"Removed expired download: {filename}")
         except Exception as exc:
             logger.warning(f"Failed to remove {filename}: {exc}")
@@ -402,7 +423,7 @@ def process_video_task(video_url: str):
 
 @app.get("/")
 def home():
-    return {"status": "Running on VPS", "endpoints": {"start": "/scrape?url=...", "progress": "/progress", "logs": "/logs", "files": "/list"}}
+    return {"status": "Running on VPS", "endpoints": {"start": "/scrape?url=...", "progress": "/progress", "logs": "/logs"}}
 
 @app.get("/scrape")
 def scrape(url: str, background_tasks: BackgroundTasks):
@@ -433,9 +454,3 @@ def view_logs():
         with open(LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
             return {"recent_logs": f.readlines()[-50:][::-1]}
     return {"error": "Log file empty or missing"}
-
-@app.get("/list")
-def list_files():
-    files = os.listdir(DOWNLOAD_DIR)
-    data = [{"filename": f, "url": f"/files/{f}"} for f in files]
-    return {"files": data}
