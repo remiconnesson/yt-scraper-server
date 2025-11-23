@@ -66,7 +66,7 @@ JOBS_LOCK = asyncio.Lock()
 def analyze_frame(frame: np.ndarray) -> tuple[bool, float]:
     """Analyze a frame to estimate whether it contains text-heavy content."""
 
-    grayscale_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    grayscale_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
     edges = cv2.Canny(grayscale_frame, threshold1=100, threshold2=200)
 
     edge_density = float(np.count_nonzero(edges)) / float(edges.size)
