@@ -19,14 +19,17 @@ class TestDetectStaticSegments:
     """Test frame detection phase."""
 
     @pytest.fixture(autouse=True)
-    async def cleanup_jobs(self):
+    def cleanup_jobs(self):
         """Clear JOBS before each test."""
         from video_service import JOBS, JOBS_LOCK
-        async with JOBS_LOCK:
-            JOBS.clear()
+
+        async def _clear() -> None:
+            async with JOBS_LOCK:
+                JOBS.clear()
+
+        asyncio.run(_clear())
         yield
-        async with JOBS_LOCK:
-            JOBS.clear()
+        asyncio.run(_clear())
 
     @pytest.mark.asyncio
     @patch("video_service.FrameStreamer")
@@ -113,14 +116,17 @@ class TestCompressSegments:
     """Test compression phase."""
 
     @pytest.fixture(autouse=True)
-    async def cleanup_jobs(self):
+    def cleanup_jobs(self):
         """Clear JOBS before each test."""
         from video_service import JOBS, JOBS_LOCK
-        async with JOBS_LOCK:
-            JOBS.clear()
+
+        async def _clear() -> None:
+            async with JOBS_LOCK:
+                JOBS.clear()
+
+        asyncio.run(_clear())
         yield
-        async with JOBS_LOCK:
-            JOBS.clear()
+        asyncio.run(_clear())
 
     @pytest.mark.asyncio
     @patch("video_service.compress_image")
@@ -161,6 +167,8 @@ class TestCompressSegments:
     @patch("video_service.compress_image")
     async def test_compress_segments_skips_none_frames(self, mock_compress):
         """Test that segments without frames are skipped."""
+        mock_compress.return_value = (b"data", {"quality": 90})
+
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
         segments = [
             Segment(type="static", representative_frame=frame),
@@ -197,14 +205,17 @@ class TestUploadSegments:
     """Test upload phase."""
 
     @pytest.fixture(autouse=True)
-    async def cleanup_jobs(self):
+    def cleanup_jobs(self):
         """Clear JOBS before each test."""
         from video_service import JOBS, JOBS_LOCK
-        async with JOBS_LOCK:
-            JOBS.clear()
+
+        async def _clear() -> None:
+            async with JOBS_LOCK:
+                JOBS.clear()
+
+        asyncio.run(_clear())
         yield
-        async with JOBS_LOCK:
-            JOBS.clear()
+        asyncio.run(_clear())
 
     @pytest.mark.asyncio
     @patch("video_service.upload_to_s3")
@@ -319,14 +330,17 @@ class TestExtractAndProcessFramesIntegration:
     """Integration tests for the full pipeline orchestration."""
 
     @pytest.fixture(autouse=True)
-    async def cleanup_jobs(self):
+    def cleanup_jobs(self):
         """Clear JOBS before each test."""
         from video_service import JOBS, JOBS_LOCK
-        async with JOBS_LOCK:
-            JOBS.clear()
+
+        async def _clear() -> None:
+            async with JOBS_LOCK:
+                JOBS.clear()
+
+        asyncio.run(_clear())
         yield
-        async with JOBS_LOCK:
-            JOBS.clear()
+        asyncio.run(_clear())
 
     @pytest.mark.asyncio
     @patch("video_service._upload_segments")
