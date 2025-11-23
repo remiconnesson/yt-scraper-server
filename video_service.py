@@ -18,11 +18,14 @@ import json
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from enum import Enum
+from io import BytesIO
 from typing import Any, Optional
 
 from extract_slides.video_analyzer import FrameStreamer, SegmentDetector
 
+import cv2
 import numpy as np
+from PIL import Image
 from pydantic import BaseModel
 
 
@@ -59,6 +62,18 @@ JOBS: dict[str, dict[str, Any]] = {}
 JOBS_LOCK = asyncio.Lock()
 
 
+def analyze_frame(frame: np.ndarray) -> tuple[bool, float]:
+    """Analyze a frame to estimate whether it contains text-heavy content."""
+
+    grayscale_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(grayscale_frame, threshold1=100, threshold2=200)
+
+    edge_density = float(np.count_nonzero(edges)) / float(edges.size)
+    has_text = edge_density > 0.15
+
+    return has_text, edge_density
+
+
 def compress_image(
     frame: np.ndarray, quality: Optional[int] = None
 ) -> tuple[bytes, dict[str, Any]]:
@@ -83,7 +98,28 @@ def compress_image(
         compression details such as format, quality used, and a ``has_text``
         flag.
     """
-    raise NotImplementedError("Image compression pipeline is not implemented yet.")
+    denoised_frame = cv2.fastNlMeansDenoisingColored(
+        frame, h=3, hColor=3, templateWindowSize=7, searchWindowSize=21
+    )
+
+    has_text, edge_density = analyze_frame(denoised_frame)
+    chosen_quality = quality if quality is not None else (90 if has_text else 85)
+
+    rgb_frame = cv2.cvtColor(denoised_frame, cv2.COLOR_BGR2RGB)
+    image = Image.fromarray(rgb_frame)
+
+    buffer = BytesIO()
+    image.save(buffer, format="WEBP", quality=chosen_quality, method=6, lossless=False)
+    buffer.seek(0)
+
+    compression_info = {
+        "format": "WEBP",
+        "quality": chosen_quality,
+        "has_text": has_text,
+        "edge_density": edge_density,
+    }
+
+    return buffer.getvalue(), compression_info
 
 
 def upload_to_s3(
