@@ -63,10 +63,6 @@ def update_progress(filename, bytes_added=0, total_size=None, status=None):
             JOB_PROGRESS[filename]["status"] = status
 
 def get_file_size(url, headers, proxies):
-    """
-    Robust size detection. Tries 3 methods to unlock Parallel Downloading.
-    """
-    # Method 1: Parse 'clen' from URL (Fastest, specific to GoogleVideo)
     if "clen=" in url:
         try:
             query = parse_qs(urlparse(url).query)
@@ -77,32 +73,26 @@ def get_file_size(url, headers, proxies):
         except:
             pass
 
-    # Method 2: HEAD Request (Standard)
     try:
         head_resp = requests.head(url, headers=headers, proxies=proxies, timeout=10)
         if head_resp.status_code == 200:
             size = int(head_resp.headers.get('content-length', 0))
-            if size > 0:
-                return size
+            if size > 0: return size
     except:
         pass
 
-    # Method 3: Range Probe (The "Hammer")
-    # Request just the first byte. Server replies with 'Content-Range: bytes 0-0/123456'
     try:
         h = headers.copy()
         h['Range'] = 'bytes=0-0'
         r = requests.get(url, headers=h, proxies=proxies, timeout=10, stream=True)
         if r.status_code in [206, 200]:
-            cr = r.headers.get('Content-Range', '')
-            # Parse "bytes 0-0/123456"
-            match = re.search(r'/(\d+)', cr)
+            match = re.search(r'/(\d+)', r.headers.get('Content-Range', ''))
             if match:
                 size = int(match.group(1))
                 logger.info(f"Size detected via Range Probe: {size}")
                 return size
-    except Exception as e:
-        logger.warning(f"Range probe failed: {e}")
+    except:
+        pass
 
     return 0
 
@@ -149,7 +139,6 @@ def get_stream_urls(video_url):
                 logger.info(f"Metadata Success: {v_res}p | Title: {title[:30]}...")
                 return video_streams[0]['url'], audio_streams[0]['url'], title
             
-            logger.error("No compatible streams found.")
             return None, None, None
 
     except Exception as e:
@@ -162,7 +151,7 @@ def download_chunk(url, headers, start, end, part_filename, proxies, parent_file
         with requests.get(url, headers=headers, proxies=proxies, stream=True, timeout=(20, 120)) as r:
             r.raise_for_status()
             with open(part_filename, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=4*1024*1024): # 4MB Buffer
+                for chunk in r.iter_content(chunk_size=1024*1024): 
                     if chunk:
                         f.write(chunk)
                         update_progress(parent_filename, bytes_added=len(chunk))
@@ -171,7 +160,7 @@ def download_chunk(url, headers, start, end, part_filename, proxies, parent_file
         logger.error(f"Chunk Fail {start}-{end}: {e}")
         return False
 
-def download_file_parallel(url, filename, num_threads=8):
+def download_file_parallel(url, filename, num_threads=4):
     path = os.path.join(DOWNLOAD_DIR, filename)
     
     proxies = {}
@@ -186,17 +175,15 @@ def download_file_parallel(url, filename, num_threads=8):
 
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
 
-    # 1. Robust Size Detection
     total_size = get_file_size(url, headers, proxies)
 
-    # 2. If size unknown or small, use Single Thread (Safe Mode)
-    if total_size < 5 * 1024 * 1024:
-        logger.warning(f"Size {total_size} too small/unknown for parallel. Using Single Thread.")
+    # TWEAKED: Lowered threshold to 1MB so Audio files use Parallel too
+    if total_size < 1 * 1024 * 1024:
+        logger.warning(f"Size {total_size} too small/unknown. Using Single Thread.")
         return download_file_single(url, filename, proxies)
 
-    # 3. Parallel Mode
     update_progress(filename, total_size=total_size, status="downloading")
-    logger.info(f"PARALLEL DOWNLOAD START: {filename} ({total_size / (1024*1024):.1f} MB) | {num_threads} Threads")
+    logger.info(f"PARALLEL START: {filename} ({total_size / (1024*1024):.1f} MB) | {num_threads} Threads")
 
     chunk_size = total_size // num_threads
     futures = []
@@ -215,7 +202,6 @@ def download_file_parallel(url, filename, num_threads=8):
                 update_progress(filename, status="failed")
                 return False
 
-    # 4. Merge
     update_progress(filename, status="merging")
     logger.info(f"Merging chunks for {filename}...")
     with open(path, 'wb') as outfile:
@@ -232,6 +218,8 @@ def download_file_parallel(url, filename, num_threads=8):
 def download_file_single(url, filename, proxies):
     path = os.path.join(DOWNLOAD_DIR, filename)
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    
+    logger.info(f"SINGLE THREAD START: {filename}")
     try:
         with requests.get(url, headers=headers, proxies=proxies, stream=True, timeout=(20, 120)) as r:
             r.raise_for_status()
@@ -239,9 +227,11 @@ def download_file_single(url, filename, proxies):
             update_progress(filename, total_size=total_size, status="downloading")
             
             with open(path, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=4*1024*1024):
-                    f.write(chunk)
-                    update_progress(filename, bytes_added=len(chunk))
+                # TWEAKED: Reduced chunk size to 32KB for instant feedback on small files
+                for chunk in r.iter_content(chunk_size=32*1024):
+                    if chunk:
+                        f.write(chunk)
+                        update_progress(filename, bytes_added=len(chunk))
         
         update_progress(filename, status="complete")
         logger.info(f"SAVED Single: {filename}")
@@ -258,7 +248,6 @@ def process_video_task(video_url: str):
     if vid_url and aud_url:
         safe_title = "".join([c for c in title if c.isalpha() or c.isdigit() or c==' ']).rstrip()
         
-        # Max Speed: 8 Threads for Video, 4 for Audio
         download_file_parallel(vid_url, f"{safe_title}_video.mp4", num_threads=8)
         download_file_parallel(aud_url, f"{safe_title}_audio.m4a", num_threads=4)
         logger.info(f"Job Finished: {safe_title}")
