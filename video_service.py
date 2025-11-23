@@ -58,6 +58,7 @@ class ProcessRequest(BaseModel):
     s3_uri: str
 
 
+TEXT_EDGE_DENSITY_THRESHOLD = 0.15
 JOBS: dict[str, dict[str, Any]] = {}
 JOBS_LOCK = asyncio.Lock()
 
@@ -69,7 +70,7 @@ def analyze_frame(frame: np.ndarray) -> tuple[bool, float]:
     edges = cv2.Canny(grayscale_frame, threshold1=100, threshold2=200)
 
     edge_density = float(np.count_nonzero(edges)) / float(edges.size)
-    has_text = edge_density > 0.15
+    has_text = edge_density > TEXT_EDGE_DENSITY_THRESHOLD
 
     return has_text, edge_density
 
@@ -222,12 +223,15 @@ async def stream_job_progress(job_id: str) -> AsyncGenerator[str, None]:
     last_update: Optional[str] = None
     last_activity = datetime.now(timezone.utc)
 
+    async with JOBS_LOCK:
+        if job_id not in JOBS:
+            raise KeyError(f"Job not found: {job_id}")
+
     while True:
         async with JOBS_LOCK:
             job_state = JOBS.get(job_id)
-
-        if job_state is None:
-            raise KeyError(f"Job not found: {job_id}")
+            if job_state is None:
+                raise KeyError(f"Job not found: {job_id}")
 
         updated_at = job_state.get("updated_at")
         if updated_at != last_update:
