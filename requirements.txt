@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+boto3
+yt-dlp
+opencv-python
+Pillow
+imagehash
+numpy
+python-dotenv
+pydantic

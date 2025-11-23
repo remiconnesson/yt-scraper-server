@@ -1,0 +1,4 @@
+- Use Python uv for dependency management.
+- Enforce strict type checking with `ty` and formatting/linting with `ruff` (add them as dev dependencies).
+- Run tests with `pytest` to validate changes.
+- Prefer test-driven development when applicable.
