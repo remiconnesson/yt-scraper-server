@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import cv2
-
 from extract_slides.video_analyzer import AnalysisResult, Segment
 
 
@@ -53,6 +51,9 @@ def save_analysis_results(result: AnalysisResult, output_dir: str) -> None:
 
     static_dir = output_path / "static"
     static_dir.mkdir(exist_ok=True)
+
+    # Import OpenCV lazily to avoid heavy dependency loading when not needed
+    import cv2
 
     # Save static segment images
     image_paths: dict[int, str] = {}
