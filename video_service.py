@@ -21,7 +21,7 @@ from enum import Enum
 from io import BytesIO
 from typing import Any, Optional
 
-from extract_slides.video_analyzer import FrameStreamer, SegmentDetector
+from extract_slides.video_analyzer import FrameStreamer, Segment, SegmentDetector
 
 import cv2
 import numpy as np
@@ -256,113 +256,129 @@ async def stream_job_progress(job_id: str) -> AsyncGenerator[str, None]:
         await asyncio.sleep(1)
 
 
-async def extract_and_process_frames(
-    video_path: str, video_id: str, job_id: str
-) -> list[dict[str, Any]]:
-    """Stream frames, detect static segments, and upload representative images.
-
-    Frames are streamed via :class:`FrameStreamer` to avoid loading the full
-    video into memory. Detected static segments are compressed and uploaded to
-    S3 one-by-one, with job progress updates emitted throughout the pipeline.
-
-    Args:
-        video_path: Local filesystem path to the video file.
-        video_id: Identifier used for naming S3 objects.
-        job_id: Identifier for job progress tracking.
-
-    Returns:
-        A list of dictionaries describing processed static segments. Each entry
-        contains ``segment_id``, ``start_time``, ``end_time``, ``duration``,
-        ``frame_count``, ``image_url``, and ``compression_info``.
-    """
+async def _detect_static_segments(
+    video_path: str, job_id: str
+) -> tuple[list[Segment], Optional[int]]:
+    """Detect static segments while streaming frames and updating progress."""
 
     streamer = FrameStreamer(video_path)
     detector = SegmentDetector()
 
-    try:
+    await update_job_status(
+        job_id,
+        JobStatus.extracting,
+        0.0,
+        "Starting frame analysis",
+    )
+
+    last_progress = -1.0
+    total_frames_seen: Optional[int] = None
+    for segment_count, frame_idx, total_frames in detector.analyze(streamer.stream()):
+        if total_frames <= 0:
+            continue
+
+        total_frames_seen = total_frames
+        progress = min((frame_idx / total_frames) * 60.0, 60.0)
+        if progress - last_progress >= 1:
+            await update_job_status(
+                job_id,
+                JobStatus.extracting,
+                progress,
+                f"Analyzing frames: {segment_count} segments, frame {frame_idx}/{total_frames}",
+                frame_count=total_frames,
+            )
+            last_progress = progress
+
+    static_segments = [
+        segment
+        for segment in detector.segments
+        if segment.type == "static" and segment.representative_frame is not None
+    ]
+
+    return static_segments, total_frames_seen
+
+
+async def _compress_segments(
+    segments: list[Segment], job_id: str
+) -> list[tuple[int, Segment, bytes, dict[str, Any]]]:
+    """Compress representative frames for detected static segments."""
+
+    total_static = len(segments) or 1
+    compressed: list[tuple[int, Segment, bytes, dict[str, Any]]] = []
+
+    for idx, segment in enumerate(segments, start=1):
         await update_job_status(
             job_id,
-            JobStatus.extracting,
-            0.0,
-            "Starting frame analysis",
+            JobStatus.compressing,
+            60.0 + ((idx - 1) / total_static) * 20.0,
+            f"Compressing segment {idx}/{len(segments)}",
+            frame_count=segment.frame_count,
         )
 
-        # Stream frames and report extraction progress.
-        last_progress = -1.0
-        total_frames_seen: Optional[int] = None
-        for segment_count, frame_idx, total_frames in detector.analyze(
-            streamer.stream()
-        ):
-            if total_frames <= 0:
-                continue
+        if segment.representative_frame is None:  # Defensive check
+            continue
 
-            total_frames_seen = total_frames
-            progress = min((frame_idx / total_frames) * 60.0, 60.0)
-            if progress - last_progress >= 1:
-                await update_job_status(
-                    job_id,
-                    JobStatus.extracting,
-                    progress,
-                    f"Analyzing frames: {segment_count} segments, frame {frame_idx}/{total_frames}",
-                    frame_count=total_frames,
-                )
-                last_progress = progress
+        compressed_frame, compression_info = compress_image(segment.representative_frame)
+        compressed.append((idx, segment, compressed_frame, compression_info))
 
-        static_segments = [
-            segment
-            for segment in detector.segments
-            if segment.type == "static" and segment.representative_frame is not None
-        ]
+    return compressed
 
-        segment_metadata: list[dict[str, Any]] = []
-        total_static = len(static_segments) or 1
 
-        for idx, segment in enumerate(static_segments, start=1):
-            # Compress the representative frame.
-            await update_job_status(
-                job_id,
-                JobStatus.compressing,
-                60.0 + ((idx - 1) / total_static) * 20.0,
-                f"Compressing segment {idx}/{len(static_segments)}",
-                frame_count=segment.frame_count,
-            )
+async def _upload_segments(
+    compressed_segments: list[tuple[int, Segment, bytes, dict[str, Any]]],
+    video_id: str,
+    job_id: str,
+) -> list[dict[str, Any]]:
+    """Upload compressed segment frames to S3 and report progress."""
 
-            compressed_frame, compression_info = compress_image(
-                segment.representative_frame
-            )
+    total_static = len(compressed_segments) or 1
+    segment_metadata: list[dict[str, Any]] = []
 
-            # Upload the compressed frame to S3.
-            s3_key = f"video/{video_id}/images/segment_{idx:03d}.webp"
-            image_url = upload_to_s3(
-                compressed_frame,
-                s3_key,
-                metadata={
-                    "video_id": video_id,
-                    "segment_id": str(idx),
-                    "start_time": str(segment.start_time),
-                    "end_time": str(segment.end_time),
-                },
-            )
+    for idx, segment, compressed_frame, compression_info in compressed_segments:
+        s3_key = f"video/{video_id}/images/segment_{idx:03d}.webp"
+        image_url = upload_to_s3(
+            compressed_frame,
+            s3_key,
+            metadata={
+                "video_id": video_id,
+                "segment_id": str(idx),
+                "start_time": str(segment.start_time),
+                "end_time": str(segment.end_time),
+            },
+        )
 
-            await update_job_status(
-                job_id,
-                JobStatus.uploading,
-                60.0 + (idx / total_static) * 40.0,
-                f"Uploaded segment {idx}/{len(static_segments)}",
-                frame_count=segment.frame_count,
-            )
+        await update_job_status(
+            job_id,
+            JobStatus.uploading,
+            60.0 + (idx / total_static) * 40.0,
+            f"Uploaded segment {idx}/{total_static}",
+            frame_count=segment.frame_count,
+        )
 
-            segment_metadata.append(
-                {
-                    "segment_id": idx,
-                    "start_time": segment.start_time,
-                    "end_time": segment.end_time,
-                    "duration": segment.duration,
-                    "frame_count": segment.frame_count,
-                    "image_url": image_url,
-                    "compression_info": compression_info,
-                }
-            )
+        segment_metadata.append(
+            {
+                "segment_id": idx,
+                "start_time": segment.start_time,
+                "end_time": segment.end_time,
+                "duration": segment.duration,
+                "frame_count": segment.frame_count,
+                "image_url": image_url,
+                "compression_info": compression_info,
+            }
+        )
+
+    return segment_metadata
+
+
+async def extract_and_process_frames(
+    video_path: str, video_id: str, job_id: str
+) -> list[dict[str, Any]]:
+    """Orchestrate frame extraction, compression, and upload pipeline."""
+
+    try:
+        static_segments, total_frames_seen = await _detect_static_segments(
+            video_path, job_id
+        )
 
         if not static_segments:
             await update_job_status(
@@ -372,7 +388,12 @@ async def extract_and_process_frames(
                 "No static segments detected",
                 frame_count=total_frames_seen,
             )
-            return segment_metadata
+            return []
+
+        compressed_segments = await _compress_segments(static_segments, job_id)
+        segment_metadata = await _upload_segments(
+            compressed_segments, video_id, job_id
+        )
 
         await update_job_status(
             job_id,
