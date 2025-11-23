@@ -66,6 +66,10 @@ After the request returns, poll `/progress` to track job completion and retrieve
 - **Chunked transfer**: `download_file_parallel` handles multi-threaded chunk downloads with a `PROGRESS_LOCK` to keep in-memory progress updates thread-safe.
 - **Data models**: `video_service.py` holds Pydantic models and enums for job tracking and S3 metadata.
 
+### Download entry point
+
+Use the FastAPI pipeline in `main.py` for all YouTube downloads. The previous standalone helper (`download_video.py`) duplicated logic and has been removed to keep behavior consistent with the multi-threaded downloader and progress tracking exposed by the API.
+
 ## How downloads work
 
 - `yt-dlp` resolves the best video (up to 1000p) and audio-only HTTP streams through the Zyte proxy when configured.
