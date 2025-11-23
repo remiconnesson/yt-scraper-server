@@ -6,7 +6,7 @@ import shutil
 import sys
 import time
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Any, Coroutine, Dict, Optional, TypeVar
 from urllib.parse import parse_qs, urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -43,6 +43,36 @@ logging.basicConfig(
 )
 logger = logging.getLogger("scraper")
 
+T = TypeVar("T")
+
+
+def _parse_retention_hours(raw_value: Optional[str], default: int = 24) -> int:
+    """Parse the retention env var defensively, returning a fallback on error."""
+
+    if raw_value is None:
+        return default
+
+    normalized = raw_value.strip()
+    if normalized == "":
+        logger.warning(
+            "Invalid DOWNLOAD_RETENTION_HOURS value '%s'; using default %s (empty string)",
+            raw_value,
+            default,
+        )
+        return default
+
+    try:
+        return int(normalized)
+    except ValueError as exc:
+        logger.warning(
+            "Invalid DOWNLOAD_RETENTION_HOURS value '%s'; using default %s (%s)",
+            raw_value,
+            default,
+            exc,
+        )
+        return default
+
+
 # --- CONFIGURATION ---
 ZYTE_API_KEY = os.getenv("ZYTE_API_KEY")
 ZYTE_HOST = os.getenv("ZYTE_HOST", "api.zyte.com")
@@ -54,7 +84,9 @@ AUDIO_DOWNLOAD_THREADS = 8
 DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 PARALLEL_CHUNK_SIZE = 1024 * 1024
 SINGLE_THREAD_CHUNK_SIZE = 32 * 1024
-DOWNLOAD_RETENTION_HOURS = int(os.getenv("DOWNLOAD_RETENTION_HOURS", "24"))
+DEFAULT_RETENTION_HOURS = 24
+DOWNLOAD_RETENTION_HOURS_RAW = os.getenv("DOWNLOAD_RETENTION_HOURS")
+DOWNLOAD_RETENTION_HOURS = _parse_retention_hours(DOWNLOAD_RETENTION_HOURS_RAW, DEFAULT_RETENTION_HOURS)
 
 # --- HELPERS ---
 
@@ -106,6 +138,27 @@ async def _remove_progress_entry(filename: str) -> None:
         JOB_PROGRESS.pop(filename, None)
 
 
+def _ensure_sync_entrypoint(sync_only_message: str) -> None:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    else:
+        raise RuntimeError(sync_only_message)
+
+
+def _run_in_event_loop(coro: Coroutine[Any, Any, T], async_use_hint: str) -> T:
+    """Bridge a coroutine into the app event loop from sync contexts."""
+
+    _ensure_sync_entrypoint(async_use_hint)
+
+    if EVENT_LOOP and EVENT_LOOP.is_running():
+        future = asyncio.run_coroutine_threadsafe(coro, EVENT_LOOP)
+        return future.result()
+
+    raise RuntimeError("Event loop not initialized; progress updates require FastAPI startup to complete.")
+
+
 def update_progress(
     filename: str,
     bytes_added: int = 0,
@@ -114,24 +167,22 @@ def update_progress(
 ) -> None:
     """Thread-safe wrapper to update download progress from sync code paths."""
 
-    if EVENT_LOOP and EVENT_LOOP.is_running():
-        future = asyncio.run_coroutine_threadsafe(
-            _update_progress(filename, bytes_added=bytes_added, total_size=total_size, status=status),
-            EVENT_LOOP,
-        )
-        future.result()
-    else:
-        raise RuntimeError("Event loop not initialized; progress updates require FastAPI startup to complete.")
+    _run_in_event_loop(
+        _update_progress(filename, bytes_added=bytes_added, total_size=total_size, status=status),
+        "update_progress() cannot be used from async contexts; call `_update_progress` directly instead.",
+    )
 
 
 def remove_progress_entry(filename: str) -> None:
     """Thread-safe wrapper to prune a progress record from sync code paths."""
 
-    if EVENT_LOOP and EVENT_LOOP.is_running():
-        future = asyncio.run_coroutine_threadsafe(_remove_progress_entry(filename), EVENT_LOOP)
-        future.result()
-    else:
-        logger.warning("Event loop not initialized; cannot remove progress entry safely.")
+    try:
+        _run_in_event_loop(
+            _remove_progress_entry(filename),
+            "remove_progress_entry() cannot be used from async contexts; call `_remove_progress_entry` directly instead.",
+        )
+    except RuntimeError as exc:
+        logger.warning("%s", exc)
 
 
 def get_file_size(url: str, headers: Dict[str, str], proxies: Dict[str, str]) -> int:
@@ -252,8 +303,14 @@ def cleanup_old_downloads(retention_hours: int = DOWNLOAD_RETENTION_HOURS) -> No
                 os.remove(path)
                 remove_progress_entry(filename)
                 logger.info(f"Removed expired download: {filename}")
-        except Exception as exc:
-            logger.warning(f"Failed to remove {filename}: {exc}")
+        except OSError as exc:
+            logger.warning(
+                "Failed to remove %s during cleanup (retention=%s, env='%s'): %s",
+                filename,
+                retention_hours,
+                DOWNLOAD_RETENTION_HOURS_RAW,
+                exc,
+            )
 
 
 def download_chunk(url: str, headers: Dict[str, str], start: int, end: int, part_filename: str, proxies: Dict[str, str], parent_filename: str) -> bool:
