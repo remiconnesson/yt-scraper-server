@@ -93,6 +93,15 @@ uv run ty
 uv run pytest
 ```
 
+Before running the commands above, install dependencies with uv to ensure the
+headless OpenCV build is used (avoiding `libGL.so.1` import errors) and dev
+tools like `ruff` and `ty` are available:
+
+```bash
+uv sync --dev
+```
+
+
 ## CLI utilities
 
 The repository still ships the `extract-slides` command group for working with presentation files and detecting static segments in videos:
