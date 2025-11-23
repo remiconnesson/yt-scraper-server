@@ -63,16 +63,17 @@ def update_progress(filename, bytes_added=0, total_size=None, status=None):
             JOB_PROGRESS[filename]["status"] = status
 
 def get_file_size(url, headers, proxies):
+    # Method 1: URL 'clen' parameter
     if "clen=" in url:
         try:
             query = parse_qs(urlparse(url).query)
             if 'clen' in query:
                 size = int(query['clen'][0])
-                logger.info(f"Size detected via URL clen: {size}")
                 return size
         except:
             pass
 
+    # Method 2: HEAD Request
     try:
         head_resp = requests.head(url, headers=headers, proxies=proxies, timeout=10)
         if head_resp.status_code == 200:
@@ -81,6 +82,7 @@ def get_file_size(url, headers, proxies):
     except:
         pass
 
+    # Method 3: Range Probe
     try:
         h = headers.copy()
         h['Range'] = 'bytes=0-0'
@@ -88,9 +90,7 @@ def get_file_size(url, headers, proxies):
         if r.status_code in [206, 200]:
             match = re.search(r'/(\d+)', r.headers.get('Content-Range', ''))
             if match:
-                size = int(match.group(1))
-                logger.info(f"Size detected via Range Probe: {size}")
-                return size
+                return int(match.group(1))
     except:
         pass
 
@@ -117,12 +117,13 @@ def get_stream_urls(video_url):
             title = info.get('title', 'video')
             formats = info.get('formats', [])
             
-            # Video: Max 1080p
+            # Video: Max 1000p (so 720p or 480p, but NOT 1080p)
+            # If you want 1080p, change 1000 to 1080.
             video_streams = [
                 f for f in formats 
                 if f.get('vcodec') != 'none' and f.get('acodec') == 'none' 
                 and f.get('protocol', '').startswith('http')
-                and f.get('height', 0) <= 1080
+                and f.get('height', 0) <= 1000
             ]
             video_streams.sort(key=lambda x: x.get('height', 0), reverse=True)
             
@@ -160,7 +161,7 @@ def download_chunk(url, headers, start, end, part_filename, proxies, parent_file
         logger.error(f"Chunk Fail {start}-{end}: {e}")
         return False
 
-def download_file_parallel(url, filename, num_threads=4):
+def download_file_parallel(url, filename, num_threads=8):
     path = os.path.join(DOWNLOAD_DIR, filename)
     
     proxies = {}
@@ -177,7 +178,7 @@ def download_file_parallel(url, filename, num_threads=4):
 
     total_size = get_file_size(url, headers, proxies)
 
-    # TWEAKED: Lowered threshold to 1MB so Audio files use Parallel too
+    # Fallback to single thread if size unknown or < 1MB
     if total_size < 1 * 1024 * 1024:
         logger.warning(f"Size {total_size} too small/unknown. Using Single Thread.")
         return download_file_single(url, filename, proxies)
@@ -227,11 +228,9 @@ def download_file_single(url, filename, proxies):
             update_progress(filename, total_size=total_size, status="downloading")
             
             with open(path, 'wb') as f:
-                # TWEAKED: Reduced chunk size to 32KB for instant feedback on small files
                 for chunk in r.iter_content(chunk_size=32*1024):
-                    if chunk:
-                        f.write(chunk)
-                        update_progress(filename, bytes_added=len(chunk))
+                    f.write(chunk)
+                    update_progress(filename, bytes_added=len(chunk))
         
         update_progress(filename, status="complete")
         logger.info(f"SAVED Single: {filename}")
@@ -248,8 +247,19 @@ def process_video_task(video_url: str):
     if vid_url and aud_url:
         safe_title = "".join([c for c in title if c.isalpha() or c.isdigit() or c==' ']).rstrip()
         
-        download_file_parallel(vid_url, f"{safe_title}_video.mp4", num_threads=8)
-        download_file_parallel(aud_url, f"{safe_title}_audio.m4a", num_threads=4)
+        # CONCURRENT DOWNLOADS
+        # We use a ThreadPool to run both downloads at the exact same time
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            # Submit both jobs
+            # Video: 32 threads for max saturation
+            f1 = executor.submit(download_file_parallel, vid_url, f"{safe_title}_video.mp4", num_threads=32)
+            # Audio: 8 threads (plenty for small files)
+            f2 = executor.submit(download_file_parallel, aud_url, f"{safe_title}_audio.m4a", num_threads=8)
+            
+            # Wait for completion
+            f1.result()
+            f2.result()
+
         logger.info(f"Job Finished: {safe_title}")
     else:
         logger.error("Job Failed during Phase A")
