@@ -2,7 +2,7 @@ fastapi
 uvicorn[standard]
 boto3
 yt-dlp
-opencv-python
+opencv-python-headless
 Pillow
 imagehash
 numpy
