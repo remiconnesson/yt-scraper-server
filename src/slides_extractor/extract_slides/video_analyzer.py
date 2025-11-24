@@ -183,61 +183,63 @@ class FrameStreamer:
         if not cap.isOpened():
             raise ValueError(f"Could not open video file: {self.path}")
 
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        video_fps = cap.get(cv2.CAP_PROP_FPS)
+        try:
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            video_fps = cap.get(cv2.CAP_PROP_FPS)
 
-        # Handle videos with missing or invalid FPS metadata
-        if video_fps <= 0:
-            raise ValueError(
-                f"Video has invalid FPS ({video_fps}). Cannot determine frame extraction rate."
-            )
+            # Handle videos with missing or invalid FPS metadata
+            if video_fps <= 0:
+                raise ValueError(
+                    f"Video has invalid FPS ({video_fps}). Cannot determine frame extraction rate."
+                )
 
-        duration = total_frames / video_fps
-        expected_count = int(duration * self.fps)
+            duration = total_frames / video_fps
+            expected_count = int(duration * self.fps)
 
-        extract_interval = 1.0 / self.fps
-        next_time = 0.0
-        frame_idx = 0
+            extract_interval = 1.0 / self.fps
+            next_time = 0.0
+            frame_idx = 0
 
-        batch_frames: list[dict[str, Union[int, float, np.ndarray]]] = []
+            batch_frames: list[dict[str, Union[int, float, np.ndarray]]]
+            batch_frames = []
 
-        with concurrent.futures.ProcessPoolExecutor() as executor:
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
+            with concurrent.futures.ProcessPoolExecutor() as executor:
+                while True:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
 
-                curr_time = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+                    curr_time = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
 
-                if curr_time >= next_time:
-                    # Resize if needed
-                    h, w = frame.shape[:2]  # type: ignore[union-attr]
-                    if w > self.max_width:
-                        scale = self.max_width / w
-                        frame = cv2.resize(frame, (self.max_width, int(h * scale)))
+                    if curr_time >= next_time:
+                        # Resize if needed
+                        h, w = frame.shape[:2]  # type: ignore[union-attr]
+                        if w > self.max_width:
+                            scale = self.max_width / w
+                            frame = cv2.resize(frame, (self.max_width, int(h * scale)))
 
-                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-                    # Add to batch
-                    batch_frames.append(
-                        {"index": frame_idx, "time": curr_time, "img": frame}
-                    )
-
-                    # Process batch if full
-                    if len(batch_frames) >= batch_size:
-                        yield from self._process_batch(
-                            executor, batch_frames, expected_count
+                        # Add to batch
+                        batch_frames.append(
+                            {"index": frame_idx, "time": curr_time, "img": frame}
                         )
-                        batch_frames = []
 
-                    frame_idx += 1
-                    next_time += extract_interval
+                        # Process batch if full
+                        if len(batch_frames) >= batch_size:
+                            yield from self._process_batch(
+                                executor, batch_frames, expected_count
+                            )
+                            batch_frames = []
 
-            # Process remaining frames
-            if batch_frames:
-                yield from self._process_batch(executor, batch_frames, expected_count)
+                        frame_idx += 1
+                        next_time += extract_interval
 
-        cap.release()
+                # Process remaining frames
+                if batch_frames:
+                    yield from self._process_batch(executor, batch_frames, expected_count)
+        finally:
+            cap.release()
 
     def _process_batch(
         self,
