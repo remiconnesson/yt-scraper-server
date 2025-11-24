@@ -25,12 +25,12 @@ class _FakeNet:
         return scores, geometry
 
 
-def test_text_detector_high_confidence(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_text_detector_counts_central_box(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_net = _FakeNet(0.95)
     monkeypatch.setattr(cv2.dnn, "readNet", lambda model_path: fake_net)
 
     def fake_decode(self: TextDetector, scores, geometry, conf_thresh):
-        return [(0.0, 0.0, 200.0, 200.0)], [0.9]
+        return [(100.0, 60.0, 540.0, 260.0)], [0.9]
 
     monkeypatch.setattr(TextDetector, "_decode", fake_decode)
     monkeypatch.setattr(
@@ -42,22 +42,24 @@ def test_text_detector_high_confidence(monkeypatch: pytest.MonkeyPatch) -> None:
     detector = TextDetector("dummy.pb")
     frame = np.zeros((320, 640, 3), dtype=np.uint8)
 
-    has_text, confidence, total_ratio, largest_ratio = detector.detect(frame)
+    has_text, confidence, total_ratio, largest_ratio, boxes = detector.detect(frame)
+
+    expected_area = (540 - 100) * (260 - 60)
+    frame_area = 640 * 320
 
     assert has_text is True
     assert confidence == pytest.approx(0.95)
-    assert total_ratio == pytest.approx((200 * 200) / (640 * 320))
-    assert largest_ratio == pytest.approx((200 * 200) / (640 * 320))
+    assert total_ratio == pytest.approx(expected_area / frame_area)
+    assert largest_ratio == pytest.approx(expected_area / frame_area)
+    assert boxes == [(100, 60, 540, 260)]
 
 
-def test_text_detector_filters_small_text_area(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_net = _FakeNet(0.5)
+def test_text_detector_ignores_corner_logo(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_net = _FakeNet(0.6)
     monkeypatch.setattr(cv2.dnn, "readNet", lambda model_path: fake_net)
 
     def fake_decode(self: TextDetector, scores, geometry, conf_thresh):
-        return [(10.0, 10.0, 15.0, 15.0)], [0.4]
+        return [(600.0, 10.0, 620.0, 30.0)], [0.55]
 
     monkeypatch.setattr(TextDetector, "_decode", fake_decode)
     monkeypatch.setattr(
@@ -69,12 +71,73 @@ def test_text_detector_filters_small_text_area(
     detector = TextDetector("dummy.pb")
     frame = np.zeros((320, 640, 3), dtype=np.uint8)
 
-    has_text, confidence, total_ratio, largest_ratio = detector.detect(frame)
-
-    expected_area = (15 - 10) * (15 - 10)
-    frame_area = 640 * 320
+    has_text, confidence, total_ratio, largest_ratio, boxes = detector.detect(frame)
 
     assert has_text is False
-    assert confidence == pytest.approx(0.5)
-    assert total_ratio == pytest.approx(expected_area / frame_area)
-    assert largest_ratio == pytest.approx(expected_area / frame_area)
+    assert confidence == pytest.approx(0.6)
+    assert total_ratio == 0.0
+    assert largest_ratio == 0.0
+    assert boxes == [(600, 10, 620, 30)]
+
+
+def test_text_detector_only_counts_central_boxes(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_net = _FakeNet(0.8)
+    monkeypatch.setattr(cv2.dnn, "readNet", lambda model_path: fake_net)
+
+    def fake_decode(self: TextDetector, scores, geometry, conf_thresh):
+        return [
+            (5.0, 5.0, 30.0, 30.0),
+            (200.0, 100.0, 420.0, 180.0),
+        ], [0.4, 0.7]
+
+    monkeypatch.setattr(TextDetector, "_decode", fake_decode)
+    monkeypatch.setattr(
+        cv2.dnn,
+        "NMSBoxes",
+        lambda boxes, confidences, score, thresh: np.array([[0], [1]]),
+    )
+
+    detector = TextDetector("dummy.pb")
+    frame = np.zeros((320, 640, 3), dtype=np.uint8)
+
+    has_text, confidence, total_ratio, largest_ratio, boxes = detector.detect(frame)
+
+    expected_center_area = (420 - 200) * (180 - 100)
+    frame_area = 640 * 320
+
+    assert has_text is True
+    assert confidence == pytest.approx(0.8)
+    assert total_ratio == pytest.approx(expected_center_area / frame_area)
+    assert largest_ratio == pytest.approx(expected_center_area / frame_area)
+    assert boxes == [(5, 5, 30, 30), (200, 100, 420, 180)]
+
+
+def test_text_detector_returns_false_without_central_boxes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_net = _FakeNet(0.7)
+    monkeypatch.setattr(cv2.dnn, "readNet", lambda model_path: fake_net)
+
+    def fake_decode(self: TextDetector, scores, geometry, conf_thresh):
+        return [
+            (5.0, 5.0, 25.0, 25.0),
+            (600.0, 280.0, 630.0, 310.0),
+        ], [0.5, 0.6]
+
+    monkeypatch.setattr(TextDetector, "_decode", fake_decode)
+    monkeypatch.setattr(
+        cv2.dnn,
+        "NMSBoxes",
+        lambda boxes, confidences, score, thresh: np.array([[0], [1]]),
+    )
+
+    detector = TextDetector("dummy.pb")
+    frame = np.zeros((320, 640, 3), dtype=np.uint8)
+
+    has_text, confidence, total_ratio, largest_ratio, boxes = detector.detect(frame)
+
+    assert has_text is False
+    assert confidence == pytest.approx(0.7)
+    assert total_ratio == 0.0
+    assert largest_ratio == 0.0
+    assert boxes == [(5, 5, 25, 25), (600, 280, 630, 310)]
