@@ -25,6 +25,7 @@ A python package with several concerns:
    - `ZYTE_API_KEY` (required for Zyte proxy usage)
    - `ZYTE_HOST` (defaults to `api.zyte.com`)
    - `DATACENTER_PROXY` (optional `user:pass@host:port` or full URL)
+   - `API_PASSWORD` (required for authenticating API requests)
    - `S3_ENDPOINT` (required for slide upload)
    - `S3_ACCESS_KEY` (required)
    - `S3_BUCKET_NAME` (optional, defaults to `slides-extractor`)
@@ -50,7 +51,8 @@ A python package with several concerns:
 Example request to start a download:
 
 ```bash
-curl -X POST "http://localhost:8000/process/youtube/dQw4w9WgXcQ"
+curl -X POST "http://localhost:8000/process/youtube/dQw4w9WgXcQ" \
+  -H "Authorization: Bearer $API_PASSWORD"
 ```
 
 ## Development workflow

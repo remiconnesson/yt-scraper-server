@@ -62,3 +62,4 @@ DOWNLOAD_RETENTION_HOURS = _parse_retention_hours(
 S3_ENDPOINT = os.getenv("S3_ENDPOINT")
 S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY")
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "slides-extractor")
+API_PASSWORD = os.getenv("API_PASSWORD")
