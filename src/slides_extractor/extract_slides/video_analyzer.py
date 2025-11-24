@@ -160,7 +160,9 @@ class FrameStreamer:
         self.fps = fps
         self.max_width = max_width
 
-    def stream(self, batch_size: int = 10) -> Generator[tuple[FrameData, int], None, None]:
+    def stream(
+        self, batch_size: int = 10
+    ) -> Generator[tuple[FrameData, int], None, None]:
         """Stream frames with parallel hash computation.
 
         Yields frames as they are processed, enabling real-time progress updates
@@ -217,11 +219,15 @@ class FrameStreamer:
                     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
                     # Add to batch
-                    batch_frames.append({"index": frame_idx, "time": curr_time, "img": frame})
+                    batch_frames.append(
+                        {"index": frame_idx, "time": curr_time, "img": frame}
+                    )
 
                     # Process batch if full
                     if len(batch_frames) >= batch_size:
-                        yield from self._process_batch(executor, batch_frames, expected_count)
+                        yield from self._process_batch(
+                            executor, batch_frames, expected_count
+                        )
                         batch_frames = []
 
                     frame_idx += 1
@@ -291,7 +297,9 @@ class SegmentDetector:
         segments: List of detected segments (accumulated during analysis)
     """
 
-    def __init__(self, threshold: int = 5, static_ratio: float = 0.8, min_frames: int = 3) -> None:
+    def __init__(
+        self, threshold: int = 5, static_ratio: float = 0.8, min_frames: int = 3
+    ) -> None:
         """Initialize the segment detector.
 
         Args:
@@ -447,7 +455,9 @@ class SegmentDetector:
             type_: Segment type ('static' or 'moving')
             frame: First frame of the segment
         """
-        self.current_seg = Segment(type=type_, start_time=frame.timestamp, end_time=frame.timestamp)
+        self.current_seg = Segment(
+            type=type_, start_time=frame.timestamp, end_time=frame.timestamp
+        )
         self.current_seg.frames = [frame.index]
         if type_ == "static":
             self.current_seg.representative_frame = frame.image
@@ -498,7 +508,9 @@ class AnalysisResult:
         return [s for s in self.segments if s.type == "moving"]
 
 
-def analyze_video(video_path: str, config: AnalysisConfig, verbose: bool = False) -> AnalysisResult:
+def analyze_video(
+    video_path: str, config: AnalysisConfig, verbose: bool = False
+) -> AnalysisResult:
     """Analyze video to detect static segments using streaming approach.
 
     This is the main entry point for video analysis. It uses a streaming

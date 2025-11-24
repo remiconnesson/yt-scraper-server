@@ -1,4 +1,5 @@
 """Pytest plugin to support async tests without external plugins."""
+
 import asyncio
 import inspect
 from typing import Any
@@ -14,7 +15,9 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
-def _resolve_fixture_kwargs(fixturedef: pytest.FixtureDef[Any], request: pytest.FixtureRequest) -> dict[str, Any]:
+def _resolve_fixture_kwargs(
+    fixturedef: pytest.FixtureDef[Any], request: pytest.FixtureRequest
+) -> dict[str, Any]:
     """Resolve the keyword arguments for a fixture function."""
     return {
         arg: request.getfixturevalue(arg)

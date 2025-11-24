@@ -152,4 +152,3 @@ async def progress_snapshot() -> dict[str, ProgressSnapshot]:
                 },
             )
     return results
-

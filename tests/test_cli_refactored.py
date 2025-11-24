@@ -3,7 +3,6 @@
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
-import pytest
 from click.testing import CliRunner
 
 from slides_extractor.extract_slides.cli import VideoAnalysisConfig, main, video_main

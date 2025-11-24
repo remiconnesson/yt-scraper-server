@@ -12,13 +12,11 @@ import yt_dlp
 
 from slides_extractor.job_tracker import remove_progress_entry, update_progress
 from slides_extractor.settings import (
-    AUDIO_DOWNLOAD_THREADS,
     DATACENTER_PROXY,
     DEFAULT_USER_AGENT,
     DOWNLOAD_DIR,
     DOWNLOAD_RETENTION_HOURS,
     DOWNLOAD_RETENTION_HOURS_RAW,
-    LOG_FILE,
     MIN_SIZE_FOR_PARALLEL_DOWNLOAD,
     PARALLEL_CHUNK_SIZE,
     SINGLE_THREAD_CHUNK_SIZE,

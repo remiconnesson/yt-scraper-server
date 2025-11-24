@@ -1,7 +1,7 @@
 """Unit tests for video_service.py phase functions."""
 
 import asyncio
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
@@ -239,7 +239,7 @@ class TestUploadSegments:
             "https://blob.vercel-storage.com/video/abc/images/segment_001.webp"
         )
 
-        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        np.zeros((100, 100, 3), dtype=np.uint8)
         compressed_segments = [
             (
                 1,
