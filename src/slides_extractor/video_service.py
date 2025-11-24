@@ -572,7 +572,24 @@ def check_s3_job_exists(video_id: str) -> str | None:
     key = f"video/{video_id}/video_segments.json"
     try:
         s3 = _get_s3_client()
-        s3.head_object(Bucket=S3_BUCKET_NAME, Key=key)
+        metadata = s3.head_object(Bucket=S3_BUCKET_NAME, Key=key)
+        content_type = (metadata or {}).get("ContentType", "").lower()
+        content_length = (metadata or {}).get("ContentLength", 0)
+
+        if content_type in {"application/x-directory", "inode/directory"}:
+            logger.warning(
+                "Job output for %s is a directory marker, ignoring", video_id
+            )
+            return None
+
+        if not isinstance(content_length, (int, float)) or content_length <= 0:
+            logger.warning(
+                "Job output for %s is missing or empty (length=%s)",
+                video_id,
+                content_length,
+            )
+            return None
+
         endpoint = _get_s3_endpoint()
         return f"{endpoint}/{S3_BUCKET_NAME}/{key}"
     except ClientError as exc:
