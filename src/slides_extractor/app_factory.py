@@ -56,8 +56,8 @@ def home():
         "endpoints": {
             "process": "/process/youtube/{video_id}",
             "progress": "/progress",
-            "job_status": "/jobs/{job_id}",
-            "job_stream": "/jobs/{job_id}/stream",
+            "job_status": "/jobs/{video_id}",
+            "job_stream": "/jobs/{video_id}/stream",
         },
     }
 
@@ -79,7 +79,6 @@ async def process_youtube_video(video_id: str, background_tasks: BackgroundTasks
         return {
             "message": "Job already in progress",
             "video_id": video_id,
-            "job_id": video_id,
             "track": f"/jobs/{video_id}",
             "stream": f"/jobs/{video_id}/stream",
             "job": existing_job,
@@ -97,7 +96,6 @@ async def process_youtube_video(video_id: str, background_tasks: BackgroundTasks
         return {
             "message": "Job already completed",
             "video_id": video_id,
-            "job_id": video_id,
             "track": f"/jobs/{video_id}",
             "stream": f"/jobs/{video_id}/stream",
             "job": job_state,
@@ -109,11 +107,10 @@ async def process_youtube_video(video_id: str, background_tasks: BackgroundTasks
         progress=0.0,
         message="Job accepted",
     )
-    background_tasks.add_task(process_video_task, video_url, video_id, video_id)
+    background_tasks.add_task(process_video_task, video_url, video_id)
     return {
         "message": "Download started",
         "video_id": video_id,
-        "job_id": video_id,
         "track": f"/jobs/{video_id}",
         "stream": f"/jobs/{video_id}/stream",
     }
@@ -124,36 +121,36 @@ async def get_progress():
     return await progress_snapshot()
 
 
-@app.get("/jobs/{job_id}")
-async def get_job(job_id: str) -> dict[str, Any]:
+@app.get("/jobs/{video_id}")
+async def get_job(video_id: str) -> dict[str, Any]:
     async with JOBS_LOCK:
-        job = dict(JOBS.get(job_id, {}))
+        job = dict(JOBS.get(video_id, {}))
 
     if not job:
-        metadata_url = check_s3_job_exists(job_id)
+        metadata_url = check_s3_job_exists(video_id)
         if metadata_url:
             job = await update_job_status(
-                job_id,
+                video_id,
                 status=JobStatus.completed,
                 progress=100.0,
                 message="Job already completed",
                 metadata_url=metadata_url,
             )
         else:
-            raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+            raise HTTPException(status_code=404, detail=f"Job not found: {video_id}")
 
     return job
 
 
-@app.get("/jobs/{job_id}/stream")
-async def stream_job(job_id: str) -> StreamingResponse:
+@app.get("/jobs/{video_id}/stream")
+async def stream_job(video_id: str) -> StreamingResponse:
     async with JOBS_LOCK:
-        if job_id not in JOBS:
-            raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+        if video_id not in JOBS:
+            raise HTTPException(status_code=404, detail=f"Job not found: {video_id}")
 
     async def _event_stream() -> AsyncIterator[str]:
         try:
-            async for event in stream_job_progress(job_id):
+            async for event in stream_job_progress(video_id):
                 yield event
         except TimeoutError as exc:
             yield f"event: error\ndata: {exc}\n\n"

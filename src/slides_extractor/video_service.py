@@ -79,18 +79,17 @@ class JobStatus(str, Enum):
 
 
 class JobResponse(BaseModel):
-    job_id: str
+    video_id: str
     status: JobStatus
     stream_url: str
 
 
 class JobResult(BaseModel):
-    job_id: str
+    video_id: str
     status: JobStatus
     metadata_url: Optional[str] = None
     error: Optional[str] = None
     frame_count: Optional[int] = None
-    video_id: Optional[str] = None
 
 
 class ProcessRequest(BaseModel):
@@ -168,7 +167,7 @@ def upload_to_s3(
 
 
 async def update_job_status(
-    job_id: str,
+    video_id: str,
     status: JobStatus,
     progress: float,
     message: str,
@@ -184,7 +183,7 @@ async def update_job_status(
     registry is protected by an ``asyncio.Lock`` to ensure thread safety.
 
     Args:
-        job_id: Unique identifier for the job being updated.
+        video_id: Unique identifier for the job being updated.
         status: Current job status value.
         progress: Percentage completion for the job.
         message: Descriptive status message for clients.
@@ -199,7 +198,7 @@ async def update_job_status(
 
     async with JOBS_LOCK:
         job_entry = JOBS.setdefault(
-            job_id,
+            video_id,
             {
                 "status": status,
                 "progress": progress,
@@ -222,7 +221,7 @@ async def update_job_status(
         return dict(job_entry)
 
 
-async def stream_job_progress(job_id: str) -> AsyncGenerator[str, None]:
+async def stream_job_progress(video_id: str) -> AsyncGenerator[str, None]:
     """Stream Server-Sent Events for job progress updates.
 
     The generator polls the ``JOBS`` registry once per second and yields
@@ -233,7 +232,7 @@ async def stream_job_progress(job_id: str) -> AsyncGenerator[str, None]:
     missing job results in a ``KeyError``.
 
     Args:
-        job_id: Identifier of the job to monitor.
+        video_id: Identifier of the job to monitor.
 
     Yields:
         SSE-formatted strings representing job progress updates.
@@ -242,14 +241,14 @@ async def stream_job_progress(job_id: str) -> AsyncGenerator[str, None]:
     last_activity = datetime.now(timezone.utc)
 
     async with JOBS_LOCK:
-        if job_id not in JOBS:
-            raise KeyError(f"Job not found: {job_id}")
+        if video_id not in JOBS:
+            raise KeyError(f"Job not found: {video_id}")
 
     while True:
         async with JOBS_LOCK:
-            job_state = JOBS.get(job_id)
+            job_state = JOBS.get(video_id)
             if job_state is None:
-                raise KeyError(f"Job not found: {job_id}")
+                raise KeyError(f"Job not found: {video_id}")
 
         updated_at = job_state.get("updated_at")
         if updated_at != last_update:
@@ -267,13 +266,13 @@ async def stream_job_progress(job_id: str) -> AsyncGenerator[str, None]:
             break
 
         if (datetime.now(timezone.utc) - last_activity).total_seconds() >= 300:
-            raise TimeoutError(f"No updates for job {job_id} in the last 300 seconds")
+            raise TimeoutError(f"No updates for job {video_id} in the last 300 seconds")
 
         await asyncio.sleep(1)
 
 
 async def _detect_static_segments(
-    video_path: str, job_id: str
+    video_path: str, video_id: str
 ) -> tuple[list[Segment], list[Segment], Optional[int]]:
     """Detect static segments while streaming frames and updating progress."""
 
@@ -281,7 +280,7 @@ async def _detect_static_segments(
     detector = SegmentDetector()
 
     await update_job_status(
-        job_id,
+        video_id,
         JobStatus.extracting,
         0.0,
         "Starting frame analysis",
@@ -297,7 +296,7 @@ async def _detect_static_segments(
         progress = min((frame_idx / total_frames) * 60.0, 60.0)
         if progress - last_progress >= 1:
             await update_job_status(
-                job_id,
+                video_id,
                 JobStatus.extracting,
                 progress,
                 f"Analyzing frames: {segment_count} segments, frame {frame_idx}/{total_frames}",
@@ -317,7 +316,6 @@ async def _detect_static_segments(
 async def _upload_segments(
     segments: list[Segment],
     video_id: str,
-    job_id: str,
     local_output_dir: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """Upload representative frames to S3 or save locally and report progress."""
@@ -364,7 +362,7 @@ async def _upload_segments(
             uri = f"s3://{S3_BUCKET_NAME}/{s3_key}"
 
         await update_job_status(
-            job_id,
+            video_id,
             JobStatus.uploading,
             60.0 + (idx / total_static) * 40.0,
             f"Uploaded segment {idx}/{total_static}",
@@ -427,26 +425,26 @@ def _build_segments_manifest(
 
 
 async def extract_and_process_frames(
-    video_path: str, video_id: str, job_id: str, local_output_dir: Optional[str] = None
+    video_path: str, video_id: str, local_output_dir: Optional[str] = None
 ) -> list[dict[str, Any]]:
     """Orchestrate frame extraction and upload pipeline."""
 
     static_segments, all_segments, total_frames_seen = await _detect_static_segments(
-        video_path, job_id
+        video_path, video_id
     )
 
     if not static_segments:
         await update_job_status(
-            job_id,
-            JobStatus.completed,
-            100.0,
-            "No static segments detected",
+        video_id,
+        JobStatus.completed,
+        100.0,
+        "No static segments detected",
             frame_count=total_frames_seen,
         )
         return []
 
     segment_metadata = await _upload_segments(
-        static_segments, video_id, job_id, local_output_dir=local_output_dir
+        static_segments, video_id, local_output_dir=local_output_dir
     )
 
     manifest = _build_segments_manifest(video_id, all_segments, segment_metadata)
@@ -468,7 +466,7 @@ async def extract_and_process_frames(
         )
 
     await update_job_status(
-        job_id,
+        video_id,
         JobStatus.completed,
         100.0,
         "Frame extraction completed",

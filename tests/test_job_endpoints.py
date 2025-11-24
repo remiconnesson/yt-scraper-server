@@ -26,17 +26,17 @@ def teardown_function() -> None:
 
 
 def test_get_job_returns_latest_status() -> None:
-    job_id = "job-123"
+    video_id = "job-123"
     asyncio.run(
         update_job_status(
-            job_id,
+            video_id,
             status=JobStatus.pending,
             progress=10.0,
             message="Preparing",
         )
     )
 
-    response = client.get(f"/jobs/{job_id}")
+    response = client.get(f"/jobs/{video_id}")
 
     assert response.status_code == 200
     payload = response.json()
@@ -46,17 +46,17 @@ def test_get_job_returns_latest_status() -> None:
 
 
 def test_stream_job_sends_completion_event() -> None:
-    job_id = "job-stream"
+    video_id = "job-stream"
     asyncio.run(
         update_job_status(
-            job_id,
+            video_id,
             status=JobStatus.completed,
             progress=100.0,
             message="Done",
         )
     )
 
-    with client.stream("GET", f"/jobs/{job_id}/stream") as response:
+    with client.stream("GET", f"/jobs/{video_id}/stream") as response:
         assert response.status_code == 200
         events = [line.decode() if isinstance(line, bytes) else line for line in response.iter_lines() if line]
 

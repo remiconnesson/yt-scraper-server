@@ -50,7 +50,7 @@ class TestDetectStaticSegments:
         mock_detector_class.return_value = mock_detector
 
         segments, all_segments, total_frames = await _detect_static_segments(
-            "/tmp/video.mp4", "job-123"
+            "/tmp/video.mp4", "video-123"
         )
 
         assert len(segments) == 0
@@ -80,12 +80,12 @@ class TestDetectStaticSegments:
         mock_detector.analyze.return_value = mock_streamer.stream()
         mock_detector_class.return_value = mock_detector
 
-        await _detect_static_segments("/tmp/video.mp4", "job-123")
+        await _detect_static_segments("/tmp/video.mp4", "video-123")
 
         # Check that job status was updated
         async with JOBS_LOCK:
-            assert "job-123" in JOBS
-            assert JOBS["job-123"]["status"] == JobStatus.extracting
+            assert "video-123" in JOBS
+            assert JOBS["video-123"]["status"] == JobStatus.extracting
 
 
 class TestUploadSegments:
@@ -132,7 +132,7 @@ class TestUploadSegments:
             ),
         ]
 
-        metadata = await _upload_segments(segments, "video-abc", "job-123")
+        metadata = await _upload_segments(segments, "video-abc")
 
         assert len(metadata) == 2
         assert metadata[0]["segment_id"] == 1
@@ -180,7 +180,7 @@ class TestUploadSegments:
             ),
         ]
 
-        await _upload_segments(segments, "video-abc", "job-123")
+        await _upload_segments(segments, "video-abc")
 
         called_frame = mock_imencode.call_args[0][1]
         assert called_frame.shape == frame.shape
@@ -205,7 +205,7 @@ class TestUploadSegments:
             ),
         ]
 
-        await _upload_segments(segments, "my-video-id", "job-123")
+        await _upload_segments(segments, "my-video-id")
 
         # Verify blob key format
         call_args = mock_upload.call_args
@@ -232,7 +232,7 @@ class TestUploadSegments:
             ),
         ]
 
-        await _upload_segments(segments, "video-id", "job-123")
+        await _upload_segments(segments, "video-id")
 
         call_args = mock_upload.call_args
         metadata = call_args[1]["metadata"]
@@ -256,11 +256,11 @@ class TestUploadSegments:
             Segment(type="static", representative_frame=frame, frames=[1]),
         ]
 
-        await _upload_segments(segments, "video-id", "job-123")
+        await _upload_segments(segments, "video-id")
 
         async with JOBS_LOCK:
-            assert "job-123" in JOBS
-            assert JOBS["job-123"]["status"] == JobStatus.uploading
+            assert "video-id" in JOBS
+            assert JOBS["video-id"]["status"] == JobStatus.uploading
 
 
 class TestExtractAndProcessFramesIntegration:
@@ -307,14 +307,12 @@ class TestExtractAndProcessFramesIntegration:
         # Import here to avoid circular dependency issues
         from slides_extractor.video_service import extract_and_process_frames
 
-        result = await extract_and_process_frames(
-            "/tmp/video.mp4", "video-id", "job-123"
-        )
+        result = await extract_and_process_frames("/tmp/video.mp4", "video-id")
 
         assert result == metadata
-        mock_detect.assert_called_once_with("/tmp/video.mp4", "job-123")
+        mock_detect.assert_called_once_with("/tmp/video.mp4", "video-id")
         mock_upload.assert_called_once_with(
-            segments, "video-id", "job-123", local_output_dir=None
+            segments, "video-id", local_output_dir=None
         )
         # Verify manifest upload
         assert mock_upload_s3.called
@@ -332,15 +330,15 @@ class TestExtractAndProcessFramesIntegration:
         mock_detect.return_value = ([], [], 100)
 
         result = await extract_and_process_frames(
-            "/tmp/video.mp4", "video-id", "job-123"
+            "/tmp/video.mp4", "video-id"
         )
 
         assert result == []
 
         # Should mark as completed
         async with JOBS_LOCK:
-            assert JOBS["job-123"]["status"] == JobStatus.completed
-            assert "No static segments" in JOBS["job-123"]["message"]
+            assert JOBS["video-id"]["status"] == JobStatus.completed
+            assert "No static segments" in JOBS["video-id"]["message"]
 
 
 class TestBuildSegmentsManifest:
@@ -513,7 +511,7 @@ class TestExtractAndProcessFramesManifestUpload:
 
         mock_upload_to_s3.return_value = "https://example.com/video_segments.json"
 
-        await extract_and_process_frames("/tmp/video.mp4", "vid", "job-1")
+        await extract_and_process_frames("/tmp/video.mp4", "vid")
 
         mock_upload_to_s3.assert_called_once()
         args, kwargs = mock_upload_to_s3.call_args
@@ -523,7 +521,7 @@ class TestExtractAndProcessFramesManifestUpload:
 
         async with JOBS_LOCK:
             assert (
-                JOBS["job-1"]["metadata_url"]
+                JOBS["vid"]["metadata_url"]
                 == "https://example.com/video_segments.json"
             )
-            assert JOBS["job-1"]["status"] == JobStatus.completed
+            assert JOBS["vid"]["status"] == JobStatus.completed
