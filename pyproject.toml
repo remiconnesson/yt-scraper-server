@@ -15,7 +15,7 @@ dependencies = [
     "uvicorn>=0.38.0",
     "yt-dlp>=2025.11.12",
     "boto3",
-    "opencv-python-headless",
+    "opencv-python-headless>=4.11.0.86",
     "Pillow",
     "imagehash",
     "numpy",
