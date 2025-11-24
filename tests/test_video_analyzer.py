@@ -1,7 +1,9 @@
 """Tests for video analysis functionality."""
 
+import imagehash
 import numpy as np
 import pytest
+from PIL import Image
 
 from slides_extractor.extract_slides.video_analyzer import (
     FrameData,
@@ -109,15 +111,32 @@ def test_compute_frame_hash_invalid_grid() -> None:
 
     # Grid larger than frame should raise ValueError
     with pytest.raises(
-        ValueError, match="Grid dimensions .* cannot exceed frame dimensions"
+        ValueError, match="Grid dimensions .* cannot exceed center-cropped frame dimensions"
     ):
         _compute_frame_hash((test_image, 200, 200))
 
     # Grid with one dimension larger should also raise
     with pytest.raises(
-        ValueError, match="Grid dimensions .* cannot exceed frame dimensions"
+        ValueError, match="Grid dimensions .* cannot exceed center-cropped frame dimensions"
     ):
         _compute_frame_hash((test_image, 150, 2))
+
+
+def test_compute_frame_hash_uses_center_crop() -> None:
+    """Hash computation should ignore high-variance borders via center crop."""
+
+    # Create a frame with bright borders but a dark center
+    bordered_frame = np.zeros((10, 10, 3), dtype=np.uint8)
+    bordered_frame[:, :2] = 255
+    bordered_frame[:, -2:] = 255
+
+    expected_crop = Image.fromarray(bordered_frame).crop((1, 1, 9, 9))
+    expected_hash = imagehash.phash(expected_crop)
+
+    hashes = _compute_frame_hash((bordered_frame, 1, 1))
+
+    assert len(hashes) == 1
+    assert hashes[0] == expected_hash
 
 
 def test_segment_properties() -> None:
