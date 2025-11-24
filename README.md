@@ -29,6 +29,8 @@ A python package with several concerns:
    - `S3_ACCESS_KEY` (required)
    - `S3_BUCKET_NAME` (optional, defaults to `slides-extractor`)
 
+   **Note:** S3 uploads are private. Consumers must have valid credentials or generate presigned URLs to access the uploaded slides.
+
 3. Run the API server:
 
    ```bash

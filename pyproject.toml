@@ -27,6 +27,11 @@ dependencies = [
 extract-slides = "extract_slides.cli:main"
 video-static-segments = "extract_slides.cli:video_main"
 
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+]
+
 [tool.setuptools.package-data]
 "extract_slides" = ["py.typed"]
 

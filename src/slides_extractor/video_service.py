@@ -53,6 +53,7 @@ import boto3
 from botocore.client import Config
 from pydantic import BaseModel
 import cv2
+import requests
 
 from slides_extractor.extract_slides.video_analyzer import (
     FrameStreamer,
@@ -102,8 +103,9 @@ def upload_to_s3(
 ) -> str:
     """Upload image bytes to S3 with metadata.
 
-    The upload uses the S3 API via boto3. Objects are uploaded with public access
-    enabled (public-read) so that returned URLs are directly accessible.
+    The upload uses a presigned URL and standard HTTP PUT via requests to ensure
+    compatibility with S3 providers that mishandle chunked transfer encoding.
+    Objects are uploaded as private, accessible only with valid credentials.
 
     Args:
         data: Image bytes to upload.
@@ -113,7 +115,7 @@ def upload_to_s3(
             object.
 
     Returns:
-        Public URL of the uploaded object.
+        The S3 URL of the uploaded object (requires auth to access).
     """
     if not S3_ENDPOINT or not S3_ACCESS_KEY:
         raise RuntimeError(
@@ -121,7 +123,6 @@ def upload_to_s3(
         )
 
     # Configure S3 client
-    # Note: S3_ACCESS_KEY is used for both ID and Secret as per environment spec
     s3 = boto3.client(
         "s3",
         endpoint_url=S3_ENDPOINT,
@@ -130,23 +131,41 @@ def upload_to_s3(
         config=Config(signature_version="s3v4"),
     )
 
-    extra_args: dict[str, Any] = {
+    # Generate presigned URL for PUT
+    params: dict[str, Any] = {
+        "Bucket": S3_BUCKET_NAME,
+        "Key": key,
         "ContentType": content_type,
-        "ACL": "public-read",
     }
     if metadata:
-        extra_args["Metadata"] = metadata
+        params["Metadata"] = metadata
 
-    s3.put_object(
-        Bucket=S3_BUCKET_NAME,
-        Key=key,
-        Body=data,
-        **extra_args,
+    try:
+        presigned_url = s3.generate_presigned_url(
+            "put_object",
+            Params=params,
+            ExpiresIn=300,  # 5 minutes
+        )
+    except Exception as exc:
+        raise RuntimeError(f"Failed to generate presigned URL: {exc}") from exc
+
+    # Prepare headers for the request
+    headers = {"Content-Type": content_type}
+    if metadata:
+        for k, v in metadata.items():
+            headers[f"x-amz-meta-{k}"] = v
+
+    # Upload via requests (avoids boto3 chunked encoding issues with this S3 provider)
+    response = requests.put(
+        presigned_url,
+        data=data,
+        headers=headers,
+        timeout=30,
     )
+    response.raise_for_status()
 
     # Construct public URL
     endpoint = S3_ENDPOINT.rstrip("/")
-    # Assuming path-style access
     return f"{endpoint}/{S3_BUCKET_NAME}/{key}"
 
 
