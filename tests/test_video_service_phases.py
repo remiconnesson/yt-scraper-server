@@ -32,8 +32,8 @@ class TestDetectStaticSegments:
         asyncio.run(_clear())
 
     @pytest.mark.asyncio
-    @patch("video_service.FrameStreamer")
-    @patch("video_service.SegmentDetector")
+    @patch("slides_extractor.video_service.FrameStreamer")
+    @patch("slides_extractor.video_service.SegmentDetector")
     async def test_detect_static_segments_success(
         self, mock_detector_class, mock_streamer_class
     ):
@@ -70,8 +70,8 @@ class TestDetectStaticSegments:
         assert all(s.representative_frame is not None for s in segments)
 
     @pytest.mark.asyncio
-    @patch("video_service.FrameStreamer")
-    @patch("video_service.SegmentDetector")
+    @patch("slides_extractor.video_service.FrameStreamer")
+    @patch("slides_extractor.video_service.SegmentDetector")
     async def test_detect_static_segments_no_segments(
         self, mock_detector_class, mock_streamer_class
     ):
@@ -95,8 +95,8 @@ class TestDetectStaticSegments:
         assert total_frames == 10
 
     @pytest.mark.asyncio
-    @patch("video_service.FrameStreamer")
-    @patch("video_service.SegmentDetector")
+    @patch("slides_extractor.video_service.FrameStreamer")
+    @patch("slides_extractor.video_service.SegmentDetector")
     async def test_detect_static_segments_updates_progress(
         self, mock_detector_class, mock_streamer_class
     ):
@@ -143,7 +143,7 @@ class TestCompressSegments:
         asyncio.run(_clear())
 
     @pytest.mark.asyncio
-    @patch("video_service.compress_image")
+    @patch("slides_extractor.video_service.compress_image")
     async def test_compress_segments_success(self, mock_compress):
         """Test successful compression of segments."""
         mock_compress.return_value = (
@@ -178,7 +178,7 @@ class TestCompressSegments:
         assert mock_compress.call_count == 2
 
     @pytest.mark.asyncio
-    @patch("video_service.compress_image")
+    @patch("slides_extractor.video_service.compress_image")
     async def test_compress_segments_skips_none_frames(self, mock_compress):
         """Test that segments without frames are skipped."""
         mock_compress.return_value = (b"data", {"quality": 90})
@@ -196,7 +196,7 @@ class TestCompressSegments:
         assert mock_compress.call_count == 2
 
     @pytest.mark.asyncio
-    @patch("video_service.compress_image")
+    @patch("slides_extractor.video_service.compress_image")
     async def test_compress_segments_updates_progress(self, mock_compress):
         """Test that progress updates during compression."""
         from slides_extractor.video_service import JOBS, JOBS_LOCK
@@ -232,7 +232,7 @@ class TestUploadSegments:
         asyncio.run(_clear())
 
     @pytest.mark.asyncio
-    @patch("video_service.upload_to_vercel_blob")
+    @patch("slides_extractor.video_service.upload_to_vercel_blob")
     async def test_upload_segments_success(self, mock_upload):
         """Test successful upload of compressed segments."""
         mock_upload.return_value = (
@@ -282,7 +282,7 @@ class TestUploadSegments:
         assert mock_upload.call_count == 2
 
     @pytest.mark.asyncio
-    @patch("video_service.upload_to_vercel_blob")
+    @patch("slides_extractor.video_service.upload_to_vercel_blob")
     async def test_upload_segments_correct_blob_keys(self, mock_upload):
         """Test that blob keys are formatted correctly."""
         mock_upload.return_value = "https://blob.vercel-storage.com/url"
@@ -303,7 +303,7 @@ class TestUploadSegments:
         assert call_args[0][1] == "video/my-video-id/images/segment_005.webp"
 
     @pytest.mark.asyncio
-    @patch("video_service.upload_to_vercel_blob")
+    @patch("slides_extractor.video_service.upload_to_vercel_blob")
     async def test_upload_segments_includes_metadata(self, mock_upload):
         """Test that blob metadata is included."""
         mock_upload.return_value = "https://blob.vercel-storage.com/url"
@@ -327,7 +327,7 @@ class TestUploadSegments:
         assert metadata["end_time"] == "6.5"
 
     @pytest.mark.asyncio
-    @patch("video_service.upload_to_vercel_blob")
+    @patch("slides_extractor.video_service.upload_to_vercel_blob")
     async def test_upload_segments_updates_progress(self, mock_upload):
         """Test that progress updates during upload."""
         from slides_extractor.video_service import JOBS, JOBS_LOCK
@@ -362,9 +362,9 @@ class TestExtractAndProcessFramesIntegration:
         asyncio.run(_clear())
 
     @pytest.mark.asyncio
-    @patch("video_service._upload_segments")
-    @patch("video_service._compress_segments")
-    @patch("video_service._detect_static_segments")
+    @patch("slides_extractor.video_service._upload_segments")
+    @patch("slides_extractor.video_service._compress_segments")
+    @patch("slides_extractor.video_service._detect_static_segments")
     async def test_full_pipeline_success(self, mock_detect, mock_compress, mock_upload):
         """Test the full orchestration of all three phases."""
         # Mock each phase
@@ -397,7 +397,7 @@ class TestExtractAndProcessFramesIntegration:
         mock_upload.assert_called_once_with(compressed, "video-id", "job-123")
 
     @pytest.mark.asyncio
-    @patch("video_service._detect_static_segments")
+    @patch("slides_extractor.video_service._detect_static_segments")
     async def test_full_pipeline_no_segments(self, mock_detect):
         """Test pipeline when no segments are detected."""
         from slides_extractor.video_service import (
