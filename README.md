@@ -96,8 +96,9 @@ To deploy the application to Kubernetes:
     ```bash
     kubectl create secret generic slides-extractor-secrets \
       --from-literal=ZYTE_API_KEY=your_zyte_api_key \
-      --from-literal=S3_ACCESS_KEY=your_s3_access_key
-      --from-literal=API_PASSWORD=your_api_password
+      --from-literal=S3_ACCESS_KEY=your_s3_access_key \
+      --from-literal=API_PASSWORD=your_api_password \
+      --from-literal=DATACENTER_PROXY=DATACENTER_PROXY
 
     ```
 
