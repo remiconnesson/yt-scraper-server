@@ -296,6 +296,7 @@ def get_stream_urls(video_url):
                 if f.get("vcodec") != "none"
                 and f.get("acodec") == "none"
                 and f.get("protocol", "").startswith("http")
+                # TODO: this should be a constant at least MAX_HEIGHT
                 and f.get("height", 0) <= 1000
             ]
             video_streams.sort(key=lambda x: x.get("height", 0), reverse=True)
@@ -323,7 +324,10 @@ def get_stream_urls(video_url):
 
 
 def _get_proxy_config() -> Dict[str, str]:
-    """Normalize proxy configuration from environment variables."""
+    """Normalize proxy configuration from environment variables.
+
+    Note: I'm not convinced of the usefulness of this function.
+    """
 
     if DATACENTER_PROXY and len(DATACENTER_PROXY) > 5:
         clean_proxy = DATACENTER_PROXY.strip()
@@ -366,6 +370,8 @@ def cleanup_old_downloads(retention_hours: int = DOWNLOAD_RETENTION_HOURS) -> No
             )
 
 
+# download_chunk, _download_chunks_parallel, _merge_chunks, download_file_parallel, download_file_single
+# should be extracted to a separate module
 def download_chunk(
     url: str,
     headers: Dict[str, str],
@@ -512,9 +518,11 @@ async def on_startup() -> None:
 
     global EVENT_LOOP
     EVENT_LOOP = asyncio.get_running_loop()
+    # TODO: potential bug: the job thing is in memory, so will the remove_progress function work on startup?
     await asyncio.to_thread(cleanup_old_downloads)
 
 
+# TODO: Let's split download video and download audio, because for now we don't need the audio
 def process_video_task(video_url: str):
     logger.info(f"Job Started: {video_url}")
     try:
@@ -557,6 +565,8 @@ def process_video_task(video_url: str):
         else:
             logger.error("Job Failed during Phase A")
     finally:
+        # TODO: this should not be done here... We need to move this to a cron job.
+        # We don't need the try catch block and this should be moved in the orchestrator function
         cleanup_old_downloads()
 
 
