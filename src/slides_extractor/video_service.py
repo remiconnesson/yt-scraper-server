@@ -343,7 +343,9 @@ async def _upload_segments(
             continue
 
         bgr_frame = cv2.cvtColor(segment.representative_frame, cv2.COLOR_RGB2BGR)
-        has_text, text_confidence = text_detector.detect(bgr_frame)
+        has_text, text_confidence, total_ratio, largest_ratio = text_detector.detect(
+            bgr_frame
+        )
 
         base_metadata: dict[str, Any] = {
             "segment_id": idx,
@@ -353,6 +355,8 @@ async def _upload_segments(
             "frame_count": segment.frame_count,
             "has_text": has_text,
             "text_confidence": text_confidence,
+            "text_total_area_ratio": total_ratio,
+            "text_largest_area_ratio": largest_ratio,
             "image_url": None,
             "frame_id": None,
             "s3_key": None,
@@ -386,6 +390,8 @@ async def _upload_segments(
             "end_time": str(segment.end_time),
             "has_text": str(has_text).lower(),
             "text_conf": f"{text_confidence:.4f}",
+            "text_total_area_ratio": f"{total_ratio:.6f}",
+            "text_largest_area_ratio": f"{largest_ratio:.6f}",
         }
 
         if local_output_dir:
@@ -466,6 +472,14 @@ def _build_segments_manifest(
                 entry["has_text"] = static_meta.get("has_text")
             if "text_confidence" in static_meta:
                 entry["text_confidence"] = static_meta.get("text_confidence")
+            if "text_total_area_ratio" in static_meta:
+                entry["text_total_area_ratio"] = static_meta.get(
+                    "text_total_area_ratio"
+                )
+            if "text_largest_area_ratio" in static_meta:
+                entry["text_largest_area_ratio"] = static_meta.get(
+                    "text_largest_area_ratio"
+                )
 
         manifest_segments.append(entry)
 
