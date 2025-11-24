@@ -1,7 +1,10 @@
 import asyncio
+import os
 
 import pytest
 from fastapi.testclient import TestClient
+
+os.environ["API_PASSWORD"] = "testpassword"
 
 from slides_extractor.app_factory import (
     READINESS_EVENT,
@@ -22,6 +25,8 @@ def test_readiness_probe_reflects_drain_state():
     reset_shutdown_state()
 
     with TestClient(app) as client:
+        client.headers.update({"Authorization": "Bearer testpassword"})
+
         ready_response = client.get("/healthz/ready")
         assert ready_response.status_code == 200
 
@@ -52,4 +57,16 @@ async def test_wait_for_active_jobs_allows_completion():
 
     await waiter
     await _clear_jobs()
-    reset_shutdown_state()
+    reset_shutdown_state_for_tests()
+
+
+def test_drain_rejects_missing_authentication():
+    reset_shutdown_state_for_tests()
+
+    with TestClient(app) as client:
+        response = client.post("/drain")
+
+        assert response.status_code == 401
+        assert not SHUTDOWN_REQUESTED.is_set()
+
+    reset_shutdown_state_for_tests()

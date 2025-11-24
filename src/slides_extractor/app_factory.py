@@ -178,7 +178,11 @@ def readiness_probe():
     return {"status": "ready"}
 
 
-@app.post("/drain", status_code=status.HTTP_202_ACCEPTED)
+@app.post(
+    "/drain",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=AUTH_DEPENDENCIES,
+)
 async def initiate_drain():
     _start_draining("preStop hook")
     return {"status": "draining"}
