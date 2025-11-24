@@ -1,14 +1,45 @@
 """
-Blob storage structure:
+S3 storage structure:
 
 video/
   {video_id}/
-    images/
-      segment_001.png
-      segment_002.png
-    metadata.json
+    static_frames/
+      static_frame_000001.png
+      static_frame_000002.png
+      ...
+    video_segments.json
 
-Where `video_id` is the YouTube video ID for YouTube sources.
+Where `video_id` is the YouTube video ID for YouTube sources and `frame_000001.png` is the first static frame of the video.
+
+video_segments.json (example):
+```
+{
+    "video_id": {
+        "segments": [
+      {
+            "kind": "moving",
+        "start_time": 0.0,
+        "end_time": 1.0,
+      },
+      {
+        "kind": "static",
+        "frame_id": "static_frame_000001.png",
+        "start_time": 0.0,
+        "end_time": 1.0,
+        "url": f"{s3_endpoint}/video/video_id/static_frames/static_frame_000001.png",
+      },
+      {
+        "kind": "static",
+        "frame_id": "static_frame_000002.png",
+        "start_time": 1.0,
+        "end_time": 2.0,
+        "url": f"{s3_endpoint}/video/video_id/static_frames/static_frame_000002.png",
+      },
+      ...
+    ],
+  },
+}
+```
 """
 
 import asyncio
