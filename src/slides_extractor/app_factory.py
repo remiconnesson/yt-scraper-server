@@ -7,11 +7,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import StreamingResponse
 
 from slides_extractor.downloader import DOWNLOAD_DIR, cleanup_old_downloads
 from slides_extractor.job_tracker import progress_snapshot
+from slides_extractor.settings import API_PASSWORD
 from slides_extractor.video_jobs import process_video_task
 from slides_extractor.video_service import (
     JOBS,
@@ -40,6 +42,28 @@ def configure_logging() -> logging.Logger:
 logger = configure_logging()
 
 
+bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def require_api_password(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> None:
+    configured_password = os.getenv("API_PASSWORD") or API_PASSWORD
+
+    if configured_password is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="API password is not configured",
+        )
+
+    provided_password = credentials.credentials if credentials else None
+    if provided_password != configured_password:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API password",
+        )
+
+
 @asynccontextmanager
 async def app_lifespan(_: FastAPI) -> AsyncIterator[None]:
     # Kick off cleanup before serving requests.
@@ -47,7 +71,11 @@ async def app_lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(title="Turbo Scraper (VPS Edition)", lifespan=app_lifespan)
+app = FastAPI(
+    title="Turbo Scraper (VPS Edition)",
+    lifespan=app_lifespan,
+    dependencies=[Depends(require_api_password)],
+)
 
 
 @app.get("/")
