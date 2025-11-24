@@ -522,5 +522,8 @@ class TestExtractAndProcessFramesManifestUpload:
         assert kwargs["metadata"] == {"video_id": "vid"}
 
         async with JOBS_LOCK:
-            assert JOBS["job-1"]["metadata_url"] == "https://example.com/video_segments.json"
+            assert (
+                JOBS["job-1"]["metadata_url"]
+                == "https://example.com/video_segments.json"
+            )
             assert JOBS["job-1"]["status"] == JobStatus.completed
