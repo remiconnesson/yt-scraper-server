@@ -4,3 +4,8 @@
 - Run tests with `pytest` to validate changes.
 - Prefer test-driven development when applicable.
 - If your made changes that need to be reflected in the README.md, update it.
+
+
+How to write tests:
+- do not test that python features or libraries work, test the code you wrote.
+- we are using type-checking, do not write tests that are redundant with the type-checking.
