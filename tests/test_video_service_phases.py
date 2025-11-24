@@ -1,7 +1,7 @@
 """Unit tests for video_service.py phase functions."""
 
 import asyncio
-from unittest.mock import ANY, AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import cv2
 import numpy as np
