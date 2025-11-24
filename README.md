@@ -97,6 +97,23 @@ To deploy the application to Kubernetes:
     kubectl create secret generic slides-extractor-secrets \
       --from-literal=ZYTE_API_KEY=your_zyte_api_key \
       --from-literal=S3_ACCESS_KEY=your_s3_access_key
+      --from-literal=API_PASSWORD=your_api_password
+
+    ```
+
+3. **Build and push the image to the prviate local registry:**
+
+    ```bash
+    TAG=v0.0.0
+
+    sudo docker build -t registry.localhost:5000/slides-extractor:${TAG} .
+    sudo docker push registry.localhost:5000/slides-extractor:${TAG}
+    ```
+
+4. **Update the deployment manifest to use the new image:**
+
+    ```bash
+    sed -i "s#image: .*slides-extractor.*#image: registry.localhost:5000/slides-extractor:${TAG}#g" deploy/prod.yaml
     ```
 
 3.  **Apply the deployment manifest:**
