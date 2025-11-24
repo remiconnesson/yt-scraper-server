@@ -1,12 +1,12 @@
 import asyncio
 import logging
 import os
-import signal
 import sys
 import time
-from datetime import datetime, timezone
+from collections import deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
@@ -31,21 +31,6 @@ from slides_extractor.video_service import (
 )
 
 LOG_FILE = "app.log"
-GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = int(
-    os.getenv("GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS", "1800")
-)
-
-
-SHUTDOWN_REQUESTED = asyncio.Event()
-READINESS_EVENT = asyncio.Event()
-READINESS_EVENT.set()
-
-
-def reset_shutdown_state_for_tests() -> None:
-    """Reset shutdown markers so tests start from a clean slate."""
-
-    SHUTDOWN_REQUESTED.clear()
-    READINESS_EVENT.set()
 
 
 def configure_logging() -> logging.Logger:
@@ -61,6 +46,43 @@ def configure_logging() -> logging.Logger:
 
 
 logger = configure_logging()
+
+
+def _parse_graceful_shutdown_timeout(default_seconds: int = 1800) -> int:
+    raw_value = os.getenv("GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS")
+
+    if raw_value is None:
+        return default_seconds
+
+    try:
+        return int(raw_value)
+    except ValueError:
+        logger.error(
+            "Invalid GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS=%s; using default %s",
+            raw_value,
+            default_seconds,
+        )
+        return default_seconds
+
+
+GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = _parse_graceful_shutdown_timeout()
+
+SHUTDOWN_REQUESTED = asyncio.Event()
+READINESS_EVENT = asyncio.Event()
+READINESS_EVENT.set()
+
+
+def reset_shutdown_state() -> None:
+    """Reset shutdown markers so applications and tests start from a clean slate."""
+
+    SHUTDOWN_REQUESTED.clear()
+    READINESS_EVENT.set()
+
+
+def reset_shutdown_state_for_tests() -> None:
+    """Backward-compatible alias used by tests; prefer reset_shutdown_state()."""
+
+    reset_shutdown_state()
 
 
 def _start_draining(reason: str) -> None:
@@ -98,13 +120,6 @@ async def wait_for_active_jobs(
         await asyncio.sleep(sleep_for)
 
 
-def _register_signal_handlers() -> None:
-    def _handle_sigterm(signum: int, _: Any) -> None:
-        _start_draining(f"signal {signum}")
-
-    signal.signal(signal.SIGTERM, _handle_sigterm)
-
-
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
@@ -130,7 +145,7 @@ def require_api_password(
 @asynccontextmanager
 async def app_lifespan(_: FastAPI) -> AsyncIterator[None]:
     # Kick off cleanup before serving requests.
-    reset_shutdown_state_for_tests()
+    reset_shutdown_state()
     await asyncio.to_thread(cleanup_old_downloads)
     try:
         yield
@@ -145,8 +160,6 @@ app = FastAPI(
 )
 
 AUTH_DEPENDENCIES = [Depends(require_api_password)]
-
-_register_signal_handlers()
 
 
 @app.get("/healthz/live")
@@ -301,7 +314,8 @@ async def stream_job(video_id: str) -> StreamingResponse:
 def view_logs():
     if os.path.exists(LOG_FILE):
         with open(LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
-            return {"recent_logs": f.readlines()[-50:][::-1]}
+            recent_logs = deque(f, maxlen=50)
+            return {"recent_logs": list(reversed(recent_logs))}
     return {"error": "Log file empty or missing"}
 
 
