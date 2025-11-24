@@ -16,6 +16,60 @@ from slides_extractor.extract_slides.video_output import (
 )
 
 
+def create_synthetic_stream(
+    sequence: list[tuple[str, int]], rng_seed: int = 42, grid_size: tuple[int, int] = (2, 2)
+) -> list[FrameData]:
+    """Create frames that represent alternating slides and motion.
+
+    Args:
+        sequence: Ordered list of (content_type, frame_count) pairs, where
+            ``content_type`` can be ``"motion"`` or a slide label such as ``"slide_A"``.
+        rng_seed: Seed to make generated pixels deterministic.
+        grid_size: Hash grid dimensions passed to ``_compute_frame_hash``.
+    """
+
+    rng = np.random.default_rng(rng_seed)
+    slide_cache: dict[str, tuple[np.ndarray, list]] = {}
+    frames: list[FrameData] = []
+    frame_index = 0
+
+    for content_type, frame_count in sequence:
+        for _ in range(frame_count):
+            if content_type.startswith("slide_"):
+                if content_type not in slide_cache:
+                    slide_image = rng.integers(0, 255, (100, 100, 3), dtype=np.uint8)
+                    slide_cache[content_type] = (
+                        slide_image,
+                        _compute_frame_hash((slide_image, *grid_size)),
+                    )
+                slide_image, slide_hashes = slide_cache[content_type]
+            elif content_type == "motion":
+                slide_image = rng.integers(0, 255, (100, 100, 3), dtype=np.uint8)
+                slide_hashes = _compute_frame_hash((slide_image, *grid_size))
+            else:
+                raise ValueError(f"Unknown content type: {content_type}")
+
+            frames.append(
+                FrameData(
+                    index=frame_index,
+                    timestamp=float(frame_index),
+                    image=slide_image,
+                    hashes=slide_hashes,
+                )
+            )
+            frame_index += 1
+
+    return frames
+
+
+def stream_helper(frames: list[FrameData]):  # type: ignore[no-untyped-def]
+    """Yield frames with a consistent total count for the detector."""
+
+    total = len(frames)
+    for frame in frames:
+        yield frame, total
+
+
 def test_format_timestamp() -> None:
     """Test timestamp formatting to HH:MM:SS."""
     assert format_timestamp(0) == "00:00:00"
@@ -35,10 +89,10 @@ def test_compute_frame_hash() -> None:
     """Test frame hash computation."""
     # Create a simple test image (100x100 pixels, 3 channels, RGB) with seeded RNG
     rng = np.random.default_rng(42)
-    test_image = rng.integers(0, 255, (100, 100, 3), dtype=np.uint8)
+    random_noise_image = rng.integers(0, 255, (100, 100, 3), dtype=np.uint8)
 
     # Test with 2x2 grid
-    hashes = _compute_frame_hash((test_image, 2, 2))
+    hashes = _compute_frame_hash((random_noise_image, 2, 2))
 
     # Should return 4 hashes (2x2 grid)
     assert len(hashes) == 4
@@ -72,139 +126,67 @@ def test_segment_properties() -> None:
     assert segment.frame_count == 5
 
 
-def test_segment_detector_single_static() -> None:
-    """Test segment detector with identical frames (single static segment)."""
-    # Create detector
+def test_single_static_slide_is_detected_as_one_segment() -> None:
+    """Verify a paused slide is grouped into a single static segment."""
+
+    # GIVEN: Five identical frames representing Slide A
     detector = SegmentDetector(threshold=5, static_ratio=0.8, min_frames=3)
+    slide_frames = create_synthetic_stream([("slide_A", 5)])
 
-    # Create 5 identical frames with seeded RNG
-    rng = np.random.default_rng(42)
-    test_image = rng.integers(0, 255, (100, 100, 3), dtype=np.uint8)
-    hashes = _compute_frame_hash((test_image, 2, 2))
-
-    frames = [
-        FrameData(index=i, timestamp=float(i), image=test_image, hashes=hashes)
-        for i in range(5)
-    ]
-
-    # Process frames
-    def frame_stream():  # type: ignore[no-untyped-def]
-        for frame in frames:
-            yield frame, len(frames)
-
-    # Consume the generator
-    for _ in detector.analyze(frame_stream()):
+    # WHEN: The detector analyzes the frames
+    for _ in detector.analyze(stream_helper(slide_frames)):
         pass
 
-    # Should detect one static segment
+    # THEN: All frames belong to one static segment
     assert len(detector.segments) == 1
     assert detector.segments[0].type == "static"
     assert detector.segments[0].frames == [0, 1, 2, 3, 4]
 
 
-def test_segment_detector_all_different() -> None:
-    """Test segment detector with all different frames (moving segment)."""
-    # Create detector with very strict settings
+def test_continuous_motion_is_classified_as_moving_segment() -> None:
+    """Treat a sequence with no repeated frames as continuous motion."""
+
+    # GIVEN: Five frames of motion with no repeating slide
     detector = SegmentDetector(threshold=0, static_ratio=0.99, min_frames=3)
+    motion_frames = create_synthetic_stream([("motion", 5)])
 
-    # Create 5 completely different frames with seeded RNG
-    rng = np.random.default_rng(42)
-    frames = [
-        FrameData(
-            index=i,
-            timestamp=float(i),
-            image=rng.integers(0, 255, (100, 100, 3), dtype=np.uint8),
-            hashes=_compute_frame_hash(
-                (rng.integers(0, 255, (100, 100, 3), dtype=np.uint8), 2, 2)
-            ),
-        )
-        for i in range(5)
-    ]
-
-    # Process frames
-    def frame_stream():  # type: ignore[no-untyped-def]
-        for frame in frames:
-            yield frame, len(frames)
-
-    # Consume the generator
-    for _ in detector.analyze(frame_stream()):
+    # WHEN: The detector processes the stream
+    for _ in detector.analyze(stream_helper(motion_frames)):
         pass
 
-    # Should have segments, but they should not all be static
-    # First frame starts as static, then transitions to moving
-    moving_segments = [s for s in detector.segments if s.type == "moving"]
+    # THEN: The detector starts with a single static frame and classifies the rest as motion
+    assert len(detector.segments) == 2
+    assert detector.segments[0].type == "static"
+    assert detector.segments[0].frames == [0]
+    assert detector.segments[1].type == "moving"
+    assert detector.segments[1].frames == [1, 2, 3, 4]
 
-    # With very different frames and strict settings, should mostly be moving
-    assert len(moving_segments) >= 1
 
+def test_detects_transition_from_slide_to_motion_to_new_slide() -> None:
+    """Detect static-movement-static pattern without losing frames."""
 
-def test_segment_detector_mixed() -> None:
-    """Test segment detector with mixed static and moving frames."""
+    # GIVEN: Slide A (3 frames), motion (3 frames), Slide B (3 frames)
     detector = SegmentDetector(threshold=5, static_ratio=0.8, min_frames=2)
+    frames = create_synthetic_stream([("slide_A", 3), ("motion", 3), ("slide_B", 3)])
 
-    # Create frames: 3 static, 3 different, 3 static
-    rng = np.random.default_rng(42)
-    static_image1 = rng.integers(0, 255, (100, 100, 3), dtype=np.uint8)
-    static_image2 = rng.integers(100, 200, (100, 100, 3), dtype=np.uint8)
-
-    hashes1 = _compute_frame_hash((static_image1, 2, 2))
-    hashes2 = _compute_frame_hash((static_image2, 2, 2))
-
-    frames = []
-    # First 3 frames: static
-    for i in range(3):
-        frames.append(
-            FrameData(index=i, timestamp=float(i), image=static_image1, hashes=hashes1)
-        )
-    # Next 3 frames: different (moving)
-    for i in range(3, 6):
-        img = rng.integers(0, 255, (100, 100, 3), dtype=np.uint8)
-        frames.append(
-            FrameData(
-                index=i,
-                timestamp=float(i),
-                image=img,
-                hashes=_compute_frame_hash((img, 2, 2)),
-            )
-        )
-    # Last 3 frames: static again
-    for i in range(6, 9):
-        frames.append(
-            FrameData(index=i, timestamp=float(i), image=static_image2, hashes=hashes2)
-        )
-
-    # Process frames
-    def frame_stream():  # type: ignore[no-untyped-def]
-        for frame in frames:
-            yield frame, len(frames)
-
-    # Consume the generator
-    for _ in detector.analyze(frame_stream()):
+    # WHEN: The detector analyzes the stream
+    for _ in detector.analyze(stream_helper(frames)):
         pass
 
-    # Should detect at least 2 static segments
+    # THEN: Static → Moving → Static is recorded without duplicated frames
+    assert len(detector.segments) == 3
+
     static_segments = [s for s in detector.segments if s.type == "static"]
-    assert len(static_segments) >= 2
+    assert len(static_segments) == 2
 
-    # Verify frame indices don't have duplicates across segments
-    all_frames = []
-    for seg in detector.segments:
-        all_frames.extend(seg.frames)
-    assert len(all_frames) == len(set(all_frames)), (
-        "Frame indices should not be duplicated"
-    )
+    assert detector.segments[0].type == "static"
+    assert detector.segments[0].frames == [0, 1, 2]
 
-    # Verify first static segment contains expected frames
-    first_static = static_segments[0]
-    assert first_static.frames == [0, 1, 2], (
-        f"Expected [0, 1, 2], got {first_static.frames}"
-    )
+    assert detector.segments[1].type == "moving"
+    assert detector.segments[1].frames == [3, 4, 5]
 
-    # Verify last static segment contains expected frames
-    last_static = static_segments[-1]
-    assert last_static.frames == [6, 7, 8], (
-        f"Expected [6, 7, 8], got {last_static.frames}"
-    )
+    assert detector.segments[2].type == "static"
+    assert detector.segments[2].frames == [6, 7, 8]
 
 
 def test_frame_streamer_file_not_found() -> None:
