@@ -71,6 +71,9 @@ class Segment:
         return len(self.frames)
 
 
+CENTER_CROP_RATIO = 0.8
+
+
 def _compute_frame_hash(args: tuple[np.ndarray, int, int]) -> list[imagehash.ImageHash]:
     """Worker function for parallel hash computation.
 
@@ -89,13 +92,20 @@ def _compute_frame_hash(args: tuple[np.ndarray, int, int]) -> list[imagehash.Ima
 
     # Convert to PIL once for efficiency
     pil_image = Image.fromarray(frame_arr)
-    w, h = pil_image.size
+
+    # Compute a center crop to reduce border influence
+    crop_w = max(1, int(pil_image.width * CENTER_CROP_RATIO))
+    crop_h = max(1, int(pil_image.height * CENTER_CROP_RATIO))
+    left = (pil_image.width - crop_w) // 2
+    top = (pil_image.height - crop_h) // 2
+    cropped = pil_image.crop((left, top, left + crop_w, top + crop_h))
+    w, h = cropped.size
 
     # Validate grid size against frame dimensions
     if grid_x > w or grid_y > h:
         raise ValueError(
             f"Grid dimensions ({grid_x}x{grid_y}) cannot exceed "
-            f"frame dimensions ({w}x{h})"
+            f"center-cropped frame dimensions ({w}x{h})"
         )
 
     cw, ch = w // grid_x, h // grid_y
@@ -104,7 +114,7 @@ def _compute_frame_hash(args: tuple[np.ndarray, int, int]) -> list[imagehash.Ima
     if cw == 0 or ch == 0:
         raise ValueError(
             f"Grid dimensions ({grid_x}x{grid_y}) result in zero-sized cells "
-            f"for frame size ({w}x{h})"
+            f"for center-cropped frame size ({w}x{h})"
         )
 
     hashes: list[imagehash.ImageHash] = []
@@ -112,7 +122,7 @@ def _compute_frame_hash(args: tuple[np.ndarray, int, int]) -> list[imagehash.Ima
         for c in range(grid_x):
             # Fast crop using box coordinates
             box = (c * cw, r * ch, (c + 1) * cw, (r + 1) * ch)
-            hashes.append(imagehash.phash(pil_image.crop(box)))
+            hashes.append(imagehash.phash(cropped.crop(box)))
     return hashes
 
 
