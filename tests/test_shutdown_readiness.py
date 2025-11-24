@@ -10,7 +10,7 @@ from slides_extractor.app_factory import (
     READINESS_EVENT,
     SHUTDOWN_REQUESTED,
     app,
-    reset_shutdown_state_for_tests,
+    reset_shutdown_state,
     wait_for_active_jobs,
 )
 from slides_extractor.video_service import JOBS, JOBS_LOCK, JobStatus
@@ -22,7 +22,7 @@ async def _clear_jobs() -> None:
 
 
 def test_readiness_probe_reflects_drain_state():
-    reset_shutdown_state_for_tests()
+    reset_shutdown_state()
 
     with TestClient(app) as client:
         client.headers.update({"Authorization": "Bearer testpassword"})
@@ -39,12 +39,12 @@ def test_readiness_probe_reflects_drain_state():
         assert not READINESS_EVENT.is_set()
 
     asyncio.run(_clear_jobs())
-    reset_shutdown_state_for_tests()
+    reset_shutdown_state()
 
 
 @pytest.mark.asyncio
 async def test_wait_for_active_jobs_allows_completion():
-    reset_shutdown_state_for_tests()
+    reset_shutdown_state()
 
     async with JOBS_LOCK:
         JOBS["abc123"] = {"status": JobStatus.downloading}
