@@ -111,6 +111,21 @@ _TEXT_DETECTOR: TextDetector | None = None
 logger = logging.getLogger(__name__)
 
 
+_ACTIVE_JOB_STATUSES = {
+    JobStatus.pending,
+    JobStatus.downloading,
+    JobStatus.extracting,
+    JobStatus.uploading,
+}
+
+
+async def has_active_jobs() -> bool:
+    """Return True when any tracked job is still running."""
+
+    async with JOBS_LOCK:
+        return any(job.get("status") in _ACTIVE_JOB_STATUSES for job in JOBS.values())
+
+
 def upload_to_s3(
     data: bytes,
     key: str,

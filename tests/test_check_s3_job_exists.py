@@ -21,7 +21,9 @@ def test_check_s3_job_exists_ignores_directory_marker(monkeypatch: pytest.Monkey
             return {"ContentType": "application/x-directory", "ContentLength": 0}
 
     monkeypatch.setattr(video_service, "_get_s3_client", lambda: FakeS3())
-    monkeypatch.setattr(video_service, "_get_s3_endpoint", lambda: "https://example.com")
+    monkeypatch.setattr(
+        video_service, "_get_s3_endpoint", lambda: "https://example.com"
+    )
 
     assert video_service.check_s3_job_exists("abc123") is None
 
@@ -37,7 +39,9 @@ def test_check_s3_job_exists_returns_url_for_manifest(monkeypatch: pytest.Monkey
             return {"ContentType": "application/json", "ContentLength": 128}
 
     monkeypatch.setattr(video_service, "_get_s3_client", lambda: FakeS3())
-    monkeypatch.setattr(video_service, "_get_s3_endpoint", lambda: "https://example.com")
+    monkeypatch.setattr(
+        video_service, "_get_s3_endpoint", lambda: "https://example.com"
+    )
 
     assert (
         video_service.check_s3_job_exists("xyz789")

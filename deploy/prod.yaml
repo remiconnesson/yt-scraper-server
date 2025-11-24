@@ -6,6 +6,11 @@ metadata:
     app: slides-extractor
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: slides-extractor
@@ -14,11 +19,31 @@ spec:
       labels:
         app: slides-extractor
     spec:
+      terminationGracePeriodSeconds: 1800
       containers:
       - name: slides-extractor
         image: registry.localhost:5000/slides-extractor:v3.1.0
         ports:
         - containerPort: 8000
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - "curl -s -X POST http://127.0.0.1:8000/drain || true"
+        readinessProbe:
+          httpGet:
+            path: /healthz/ready
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /healthz/live
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 20
         env:
         - name: ZYTE_API_KEY
           valueFrom:
@@ -30,6 +55,8 @@ spec:
             secretKeyRef:
               name: slides-extractor-secrets
               key: API_PASSWORD
+        - name: GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS
+          value: "1800"
         - name: S3_ACCESS_KEY
           valueFrom:
             secretKeyRef:

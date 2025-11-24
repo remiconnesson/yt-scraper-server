@@ -55,6 +55,22 @@ def remove_progress_entry(filename: str) -> None:
         JOB_PROGRESS.pop(filename, None)
 
 
+def has_active_progress_entries() -> bool:
+    """Return True when any job is still marked as running.
+
+    Jobs reporting progress use string-based status values. A job is
+    considered complete when its status is explicitly ``complete`` or
+    ``failed``. Any other value means work is still happening and shutdown
+    should wait for it to finish.
+    """
+
+    with PROGRESS_LOCK:
+        return any(
+            state["status"] not in {"complete", "failed"}
+            for state in JOB_PROGRESS.values()
+        )
+
+
 async def progress_snapshot() -> dict[str, ProgressSnapshot]:
     """Return a copy of the progress table with percentage calculations."""
 

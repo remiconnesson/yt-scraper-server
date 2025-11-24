@@ -233,7 +233,8 @@ class TestUploadSegments:
         # Verify blob key format
         call_args = mock_upload.call_args
         assert (
-            call_args[0][1] == "video/my-video-id/static_frames/static_frame_000001.webp"
+            call_args[0][1]
+            == "video/my-video-id/static_frames/static_frame_000001.webp"
         )
 
     @pytest.mark.asyncio

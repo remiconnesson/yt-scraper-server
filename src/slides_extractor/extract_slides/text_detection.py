@@ -5,10 +5,14 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from slides_extractor.settings import EAST_MODEL_PATH, TEXT_CONF_THRESHOLD, TEXT_INPUT_SIZE
+from slides_extractor.settings import (
+    EAST_MODEL_PATH,
+    TEXT_CONF_THRESHOLD,
+    TEXT_INPUT_SIZE,
+)
 
 # Heuristics for slide-like text, not just small logos or background books.
-MIN_TOTAL_AREA_RATIO = 0.015   # 1.5% of the frame covered by text
+MIN_TOTAL_AREA_RATIO = 0.015  # 1.5% of the frame covered by text
 MIN_LARGEST_BOX_RATIO = 0.008  # Largest box covers 0.8% of the frame
 
 
@@ -101,10 +105,7 @@ class TextDetector:
         if not boxes:
             return False, max_confidence, 0.0, 0.0
 
-        rects = [
-            (x1, y1, x2 - x1, y2 - y1)
-            for x1, y1, x2, y2 in boxes
-        ]
+        rects = [(x1, y1, x2 - x1, y2 - y1) for x1, y1, x2, y2 in boxes]
         indices = cv2.dnn.NMSBoxes(rects, confidences, TEXT_CONF_THRESHOLD, 0.55)
         if len(indices) == 0:
             return False, max_confidence, 0.0, 0.0
