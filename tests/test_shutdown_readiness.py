@@ -11,6 +11,7 @@ from slides_extractor.app_factory import (
     SHUTDOWN_REQUESTED,
     app,
     reset_shutdown_state,
+    reset_shutdown_state_for_tests,
     wait_for_active_jobs,
 )
 from slides_extractor.video_service import JOBS, JOBS_LOCK, JobStatus
