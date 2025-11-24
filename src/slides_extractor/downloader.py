@@ -136,51 +136,46 @@ def get_stream_urls(
         "proxy": zyte_proxy,
     }
 
-    try:
-        logger.info(f"Phase A: Fetching metadata for {video_url}...")
-        raw_opts = cast(YoutubeDLRawParams, ydl_opts)
-        with yt_dlp.YoutubeDL(raw_opts) as ydl:
-            info = cast(dict[str, Any], ydl.extract_info(video_url, download=False))
-            title = str(info.get("title") or "video")
-            formats: list[dict[str, Any]] = cast(
-                list[dict[str, Any]], info.get("formats") or []
+    logger.info(f"Phase A: Fetching metadata for {video_url}...")
+    raw_opts = cast(YoutubeDLRawParams, ydl_opts)
+    with yt_dlp.YoutubeDL(raw_opts) as ydl:
+        info = cast(dict[str, Any], ydl.extract_info(video_url, download=False))
+        title = str(info.get("title") or "video")
+        formats: list[dict[str, Any]] = cast(
+            list[dict[str, Any]], info.get("formats") or []
+        )
+
+        # Video: Max 1000p (so 720p or 480p, but NOT 1080p)
+        # If you want 1080p, change 1000 to 1080.
+        video_streams = [
+            f
+            for f in formats
+            if f.get("vcodec") != "none"
+            and f.get("acodec") == "none"
+            and f.get("protocol", "").startswith("http")
+            and f.get("height", 0) <= 1000
+        ]
+        video_streams.sort(key=lambda x: x.get("height", 0), reverse=True)
+
+        # Audio: Best Available
+        audio_streams = [
+            f
+            for f in formats
+            if f.get("acodec") != "none"
+            and f.get("vcodec") == "none"
+            and f.get("protocol", "").startswith("http")
+        ]
+        audio_streams.sort(key=lambda x: x.get("abr", 0), reverse=True)
+
+        if video_streams and audio_streams:
+            v_res = video_streams[0].get("height")
+            logger.info(f"Metadata Success: {v_res}p | Title: {title[:30]}...")
+            return (
+                str(video_streams[0]["url"]),
+                str(audio_streams[0]["url"]),
+                title,
             )
 
-            # Video: Max 1000p (so 720p or 480p, but NOT 1080p)
-            # If you want 1080p, change 1000 to 1080.
-            video_streams = [
-                f
-                for f in formats
-                if f.get("vcodec") != "none"
-                and f.get("acodec") == "none"
-                and f.get("protocol", "").startswith("http")
-                and f.get("height", 0) <= 1000
-            ]
-            video_streams.sort(key=lambda x: x.get("height", 0), reverse=True)
-
-            # Audio: Best Available
-            audio_streams = [
-                f
-                for f in formats
-                if f.get("acodec") != "none"
-                and f.get("vcodec") == "none"
-                and f.get("protocol", "").startswith("http")
-            ]
-            audio_streams.sort(key=lambda x: x.get("abr", 0), reverse=True)
-
-            if video_streams and audio_streams:
-                v_res = video_streams[0].get("height")
-                logger.info(f"Metadata Success: {v_res}p | Title: {title[:30]}...")
-                return (
-                    str(video_streams[0]["url"]),
-                    str(audio_streams[0]["url"]),
-                    title,
-                )
-
-            return None, None, None
-
-    except Exception as e:  # pragma: no cover - integration with yt-dlp is best-effort
-        logger.error(f"Phase A Failed: {e}")
         return None, None, None
 
 
@@ -245,8 +240,8 @@ def download_chunk(
                         f.write(chunk)
                         update_progress(parent_filename, bytes_added=len(chunk))
         return True
-    except Exception as e:  # pragma: no cover - network failure is non-deterministic
-        logger.error(f"Chunk Fail {start}-{end}: {e}")
+    except (requests.RequestException, OSError) as exc:
+        logger.error("Chunk Fail %s-%s: %s", start, end, exc)
         return False
 
 
@@ -358,7 +353,7 @@ def download_file_single(
         update_progress(filename, status="complete")
         logger.info(f"SAVED Single: {filename}")
         return DownloadResult(success=True, path=path)
-    except Exception as e:  # pragma: no cover - network failure is non-deterministic
-        logger.error(f"Single Download Failed: {e}")
+    except (requests.RequestException, OSError) as exc:
+        logger.error("Single Download Failed: %s", exc)
         update_progress(filename, status="failed")
-        return DownloadResult(success=False, error=str(e))
+        return DownloadResult(success=False, error=str(exc))
