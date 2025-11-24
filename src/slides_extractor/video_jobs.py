@@ -8,7 +8,11 @@ from slides_extractor.downloader import (
     download_file_parallel,
     get_stream_urls,
 )
-from slides_extractor.video_service import extract_and_process_frames
+from slides_extractor.video_service import (
+    JobStatus,
+    extract_and_process_frames,
+    update_job_status,
+)
 
 logger = logging.getLogger("scraper")
 
@@ -20,6 +24,14 @@ def _safe_title(title: str) -> str:
 
 
 def process_video_task(video_url: str, video_id: str, job_id: str) -> None:
+    asyncio.run(
+        update_job_status(
+            job_id,
+            JobStatus.pending,
+            0.0,
+            "Processing started",
+        )
+    )
     logger.info(f"Job Started: {video_url}")
     try:
         vid_url, _, title = get_stream_urls(video_url)
