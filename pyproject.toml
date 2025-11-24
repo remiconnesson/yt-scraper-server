@@ -35,8 +35,11 @@ where = ["src"]
 
 [tool.uv]
 dev-dependencies = [
+    "mypy>=1.18.2",
     "pytest",
     "ruff",
     "ty",
+    "types-requests>=2.32.4.20250913",
+    "types-yt-dlp>=2025.11.12.20251115",
 ]
 
