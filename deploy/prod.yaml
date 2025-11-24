@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: slides-extractor
-        image: ghcr.io/yourusername/slides-extractor:latest # Replace with your actual image
+        image: registry.localhost:5000/slides-extractor:v1.0.0
         ports:
         - containerPort: 8000
         env:
@@ -25,16 +25,19 @@ spec:
             secretKeyRef:
               name: slides-extractor-secrets
               key: ZYTE_API_KEY
+        - name: API_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: slides-extractor-secrets
+              key: API_PASSWORD
         - name: S3_ACCESS_KEY
           valueFrom:
             secretKeyRef:
               name: slides-extractor-secrets
               key: S3_ACCESS_KEY
         - name: S3_ENDPOINT
-          valueFrom:
-            configMapKeyRef:
-              name: slides-extractor-config
-              key: S3_ENDPOINT
+          value: "https://s3.remtoolz.ai"
+
 ---
 apiVersion: v1
 kind: Service
