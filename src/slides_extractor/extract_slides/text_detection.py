@@ -129,7 +129,8 @@ class TextDetector:
         margin_min_y = CENTER_MARGIN_Y * orig_h
         margin_max_y = (1.0 - CENTER_MARGIN_Y) * orig_h
 
-        for idx in indices.flatten():
+        flattened_indices = np.asarray(indices, dtype=int).flatten()
+        for idx in flattened_indices:
             x1, y1, x2, y2 = boxes[idx]
 
             x1 = max(0, int(x1 * scale_x))
