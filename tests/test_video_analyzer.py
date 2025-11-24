@@ -42,12 +42,14 @@ def create_synthetic_stream(
                     slide_image = rng.integers(0, 255, (100, 100, 3), dtype=np.uint8)
                     slide_cache[content_type] = (
                         slide_image,
-                        _compute_frame_hash((slide_image, *grid_size)),
+                        _compute_frame_hash((slide_image, grid_size[0], grid_size[1])),
                     )
                 slide_image, slide_hashes = slide_cache[content_type]
             elif content_type == "motion":
                 slide_image = rng.integers(0, 255, (100, 100, 3), dtype=np.uint8)
-                slide_hashes = _compute_frame_hash((slide_image, *grid_size))
+                slide_hashes = _compute_frame_hash(
+                    (slide_image, grid_size[0], grid_size[1])
+                )
             else:
                 raise ValueError(f"Unknown content type: {content_type}")
 
