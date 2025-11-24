@@ -1,12 +1,27 @@
 import asyncio
 import logging
 import time
-from typing import Any, Coroutine, Dict, Optional, TypeVar
+from typing import Any, Coroutine, Dict, Optional, TypeVar, TypedDict, cast
 
 
 logger = logging.getLogger("scraper")
 
-JOB_PROGRESS: Dict[str, dict[str, float | str]] = {}
+
+class ProgressState(TypedDict):
+    total: float
+    current: float
+    status: str
+    start_time: float
+
+
+class ProgressSnapshot(TypedDict):
+    status: str
+    percent: float
+    downloaded_mb: float
+    total_mb: float
+
+
+JOB_PROGRESS: Dict[str, ProgressState] = {}
 PROGRESS_LOCK: asyncio.Lock | None = None
 EVENT_LOOP: asyncio.AbstractEventLoop | None = None
 
@@ -38,18 +53,18 @@ async def _update_progress(
     lock = await _ensure_progress_lock()
     async with lock:
         if filename not in JOB_PROGRESS:
-            JOB_PROGRESS[filename] = {
-                "total": 0,
-                "current": 0,
-                "status": "init",
-                "start_time": time.time(),
-            }
+            JOB_PROGRESS[filename] = ProgressState(
+                total=0.0,
+                current=0.0,
+                status="init",
+                start_time=time.time(),
+            )
 
         if total_size is not None:
-            JOB_PROGRESS[filename]["total"] = total_size
+            JOB_PROGRESS[filename]["total"] = float(total_size)
 
         if bytes_added:
-            JOB_PROGRESS[filename]["current"] += bytes_added
+            JOB_PROGRESS[filename]["current"] += float(bytes_added)
 
         if status:
             JOB_PROGRESS[filename]["status"] = status
@@ -114,22 +129,27 @@ def remove_progress_entry(filename: str) -> None:
         logger.warning("%s", exc)
 
 
-async def progress_snapshot() -> dict[str, dict[str, float | str]]:
+async def progress_snapshot() -> dict[str, ProgressSnapshot]:
     """Return a copy of the progress table with percentage calculations."""
 
-    results: dict[str, dict[str, float | str]] = {}
+    results: dict[str, ProgressSnapshot] = {}
     lock = await _ensure_progress_lock()
     async with lock:
         for filename, data in JOB_PROGRESS.items():
             pct = 0.0
-            if data["total"] > 0:
-                pct = (data["current"] / data["total"]) * 100
+            total = data["total"]
+            current = data["current"]
+            if total > 0:
+                pct = (current / total) * 100
 
-            results[filename] = {
-                "status": data["status"],
-                "percent": round(pct, 1),
-                "downloaded_mb": round(data["current"] / (1024 * 1024), 1),
-                "total_mb": round(data["total"] / (1024 * 1024), 1),
-            }
+            results[filename] = cast(
+                ProgressSnapshot,
+                {
+                    "status": data["status"],
+                    "percent": round(pct, 1),
+                    "downloaded_mb": round(current / (1024 * 1024), 1),
+                    "total_mb": round(total / (1024 * 1024), 1),
+                },
+            )
     return results
 

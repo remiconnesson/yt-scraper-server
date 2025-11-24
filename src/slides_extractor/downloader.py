@@ -4,7 +4,7 @@ import re
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, Optional
+from typing import Any, Dict, Optional, TypedDict, cast
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -28,6 +28,13 @@ from slides_extractor.settings import (
 )
 
 logger = logging.getLogger("scraper")
+
+
+class YoutubeDLParams(TypedDict, total=False):
+    quiet: bool
+    no_warnings: bool
+    nocheckcertificate: bool
+    proxy: str
 
 
 class DownloadResult:
@@ -116,7 +123,7 @@ def get_stream_urls(video_url):
 
     zyte_proxy = f"http://{ZYTE_API_KEY.strip()}:@{ZYTE_HOST}:8011/"
 
-    ydl_opts = {
+    ydl_opts: YoutubeDLParams = {
         "quiet": True,
         "no_warnings": True,
         "nocheckcertificate": True,
@@ -126,9 +133,11 @@ def get_stream_urls(video_url):
     try:
         logger.info(f"Phase A: Fetching metadata for {video_url}...")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(video_url, download=False)
-            title = info.get("title", "video")
-            formats = info.get("formats", [])
+            info = cast(dict[str, Any], ydl.extract_info(video_url, download=False))
+            title = str(info.get("title") or "video")
+            formats: list[dict[str, Any]] = cast(
+                list[dict[str, Any]], info.get("formats") or []
+            )
 
             # Video: Max 1000p (so 720p or 480p, but NOT 1080p)
             # If you want 1080p, change 1000 to 1080.
@@ -155,7 +164,11 @@ def get_stream_urls(video_url):
             if video_streams and audio_streams:
                 v_res = video_streams[0].get("height")
                 logger.info(f"Metadata Success: {v_res}p | Title: {title[:30]}...")
-                return video_streams[0]["url"], audio_streams[0]["url"], title
+                return (
+                    str(video_streams[0]["url"]),
+                    str(audio_streams[0]["url"]),
+                    title,
+                )
 
             return None, None, None
 

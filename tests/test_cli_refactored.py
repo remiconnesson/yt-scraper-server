@@ -1,11 +1,23 @@
 """Tests for refactored CLI with VideoAnalysisConfig."""
 
 from pathlib import Path
+from typing import NotRequired, TypedDict
 
 import pytest
 from click.testing import CliRunner
 
 from slides_extractor.extract_slides.cli import VideoAnalysisConfig, main, video_main
+
+
+class VideoAnalysisConfigOptions(TypedDict):
+    input_file: str
+    output_dir: str
+    grid_cols: NotRequired[int]
+    grid_rows: NotRequired[int]
+    cell_hash_threshold: NotRequired[int]
+    min_static_cell_ratio: NotRequired[float]
+    min_static_frames: NotRequired[int]
+    verbose: NotRequired[bool]
 
 
 class TestVideoAnalysisConfig:
@@ -74,7 +86,7 @@ class TestVideoAnalysisConfig:
 
     def test_config_from_kwargs(self):
         """Test creating config from **kwargs (as CLI does)."""
-        kwargs = {
+        kwargs: VideoAnalysisConfigOptions = {
             "input_file": "/tmp/video.mp4",
             "output_dir": "/tmp/output",
             "grid_cols": 4,
@@ -374,7 +386,7 @@ class TestRefactoringBenefits:
     def test_config_separates_cli_from_logic(self):
         """Test that CLI concerns are separate from analysis logic."""
         # Create config from CLI-like kwargs
-        cli_kwargs = {
+        cli_kwargs: VideoAnalysisConfigOptions = {
             "input_file": "/tmp/video.mp4",
             "output_dir": "/tmp/output",
             "grid_cols": 4,

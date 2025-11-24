@@ -2,6 +2,9 @@ import asyncio
 import logging
 import os
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import BackgroundTasks, FastAPI
 
 from slides_extractor.downloader import DOWNLOAD_DIR, LOG_FILE, cleanup_old_downloads
@@ -22,13 +25,17 @@ def configure_logging() -> logging.Logger:
 
 
 logger = configure_logging()
-app = FastAPI(title="Turbo Scraper (VPS Edition)")
 
 
-@app.on_event("startup")
-async def on_startup() -> None:  # pragma: no cover - exercised by FastAPI runtime
+@asynccontextmanager
+async def app_lifespan(_: FastAPI) -> AsyncIterator[None]:
+    # Capture the event loop and kick off cleanup before serving requests.
     await capture_event_loop()
     await asyncio.to_thread(cleanup_old_downloads)
+    yield
+
+
+app = FastAPI(title="Turbo Scraper (VPS Edition)", lifespan=app_lifespan)
 
 
 @app.get("/")
