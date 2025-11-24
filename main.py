@@ -197,43 +197,74 @@ def remove_progress_entry(filename: str) -> None:
 
 
 def get_file_size(url: str, headers: Dict[str, str], proxies: Dict[str, str]) -> int:
-    # TODO: Inner function should be extracted, instead of returning pass they should return {error: with message}, on success: return {size: int}.
-    # Method 1: URL 'clen' parameter
-    if "clen=" in url:
+    """Best-effort probe to determine the size of a remote file."""
+
+    def _size_from_clen(param_url: str) -> Optional[int]:
+        query = parse_qs(urlparse(param_url).query)
+        raw_clen = query.get("clen", [None])[0]
+        if raw_clen is None:
+            return None
+
         try:
-            # TODO: extract in one function and test it
-            query = parse_qs(urlparse(url).query)
-            if "clen" in query:
-                size = int(query["clen"][0])
-                return size
-        except:
-            pass
+            clen_value = int(raw_clen)
+            return clen_value if clen_value > 0 else None
+        except (TypeError, ValueError):
+            logger.debug("Invalid clen value encountered: %s", raw_clen)
+            return None
 
-    # Method 2: HEAD Request
-    try:
-        # TODO: extract in one function and test it
-        head_resp = requests.head(url, headers=headers, proxies=proxies, timeout=10)
-        if head_resp.status_code == 200:
-            size = int(head_resp.headers.get("content-length", 0))
-            if size > 0:
-                return size
-    except:
-        pass
+    def _size_from_head() -> Optional[int]:
+        try:
+            head_resp = requests.head(url, headers=headers, proxies=proxies, timeout=10)
+        except requests.RequestException as exc:
+            logger.debug("HEAD request failed for %s: %s", url, exc)
+            return None
 
-    # Method 3: Range Probe
-    try:
-        # TODO: extract in one function and test it
-        h = headers.copy()
-        h["Range"] = "bytes=0-0"
-        r = requests.get(url, headers=h, proxies=proxies, timeout=10, stream=True)
-        if r.status_code in [206, 200]:
-            match = re.search(r"/(\d+)", r.headers.get("Content-Range", ""))
-            if match:
-                return int(match.group(1))
-    except:
-        pass
+        if head_resp.status_code != 200:
+            return None
 
-    return 0
+        try:
+            size = int(head_resp.headers.get("content-length", "0"))
+        except (TypeError, ValueError):
+            logger.debug("Invalid content-length header for %s: %s", url, head_resp.headers)
+            return None
+
+        return size if size > 0 else None
+
+    def _size_from_range_probe() -> Optional[int]:
+        ranged_headers = headers.copy()
+        ranged_headers["Range"] = "bytes=0-0"
+
+        try:
+            response = requests.get(
+                url, headers=ranged_headers, proxies=proxies, timeout=10, stream=True
+            )
+        except requests.RequestException as exc:
+            logger.debug("Range probe failed for %s: %s", url, exc)
+            return None
+
+        if response.status_code not in (200, 206):
+            return None
+
+        match = re.search(r"/(\d+)$", response.headers.get("Content-Range", ""))
+        if not match:
+            return None
+
+        try:
+            size = int(match.group(1))
+        except ValueError:
+            logger.debug(
+                "Unable to parse Content-Range header for %s: %s", url, response.headers
+            )
+            return None
+
+        return size if size > 0 else None
+
+    return (
+        _size_from_clen(url)
+        or _size_from_head()
+        or _size_from_range_probe()
+        or 0
+    )
 
 
 def get_stream_urls(video_url):
