@@ -1,31 +1,24 @@
-# Turbo Scraper Server
+# Slides Extractor
 
-A FastAPI-based service for downloading YouTube (and other HTTP) video and audio streams through configurable proxies. Downloads run as background jobs with progress tracking, log inspection, and static hosting of completed files.
-
-## Features
-
-- Background download pipeline that fetches the best available video and audio streams concurrently via `yt-dlp`.
-- Chunked, multi-threaded HTTP downloading with optional proxy support (Zyte or datacenter proxies).
-- Progress tracking endpoint that reports per-file status and percentage completed.
-- Recent log retrieval for quick debugging.
-- Static file hosting for completed downloads under `/files`.
-- CLI utilities for slide extraction and detecting static segments in videos (see below).
+A python package with several concerns:
+1. Downloading YouTube videos and audio streams
+2. Extracting slides from videos frames
+3. [Optional] Compressing slides to WebP format
+4. Uploading slides to S3 with metadata about the timestamps of the slides in the video
+5. Running a webserver and update clients about the progress of the downloads and the slides extraction
 
 ## Requirements
 
 - Python 3.13+
-- [uv](https://github.com/astral-sh/uv) for dependency management (preferred)
-- `yt-dlp` dependencies suitable for your platform
-- Optional: Zyte API key or datacenter proxy for remote fetching
+- [uv](https://github.com/astral-sh/uv) for dependency management
+- Zyte API key and datacenter proxy for remote fetching of YouTube videos
 
 ## Quickstart
 
-1. Create and activate a virtual environment using uv:
+1. Install dependencies:
 
    ```bash
-   uv venv
-   source .venv/bin/activate
-   uv pip install -e ".[dev]"
+   uv sync --dev
    ```
 
 2. Configure environment variables (create a `.env` file or export directly):
@@ -45,37 +38,14 @@ A FastAPI-based service for downloading YouTube (and other HTTP) video and audio
 | Endpoint | Method | Description |
 | --- | --- | --- |
 | `/` | GET | Service status and quick links to other endpoints. |
-| `/scrape?url=...` | GET | Starts a background job to download video and audio streams for the given URL. |
+| `/process/youtube/{video_id}` | POST | Starts a background job to download video and audio streams for the given YouTube video ID. |
 | `/progress` | GET | Returns per-file download status, percent completion, and size information. |
-| `/logs` | GET | Returns the 50 most recent log lines. |
-| `/list` | GET | Lists completed download files with links served from `/files/{name}`. |
 
 Example request to start a download:
 
 ```bash
-curl "http://localhost:8000/scrape?url=https://www.youtube.com/watch?v=VIDEO_ID"
+curl -X POST "http://localhost:8000/process/youtube/dQw4w9WgXcQ"
 ```
-
-After the request returns, poll `/progress` to track job completion and retrieve files from `/list` once complete.
-
-## Architecture overview
-
-- **Entry point**: `main.py` wires up FastAPI routes for starting downloads (`/scrape`), polling progress (`/progress`), viewing logs (`/logs`), listing completed files (`/list`), and serving static files from `downloads/` via `/files`.
-- **Download orchestration**: `process_video_task` coordinates concurrent video and audio downloads in a background task while keeping the request thread responsive.
-- **Stream resolution**: `get_stream_urls` fetches the best video (up to 1000p) and audio-only HTTP streams through Zyte when configured.
-- **Chunked transfer**: `download_file_parallel` handles multi-threaded chunk downloads with a `PROGRESS_LOCK` to keep in-memory progress updates thread-safe.
-- **Data models**: `video_service.py` holds Pydantic models and enums for job tracking and S3 metadata.
-
-### Download entry point
-
-Use the FastAPI pipeline in `main.py` for all YouTube downloads. The previous standalone helper (`download_video.py`) duplicated logic and has been removed to keep behavior consistent with the multi-threaded downloader and progress tracking exposed by the API.
-
-## How downloads work
-
-- `yt-dlp` resolves the best video (up to 1000p) and audio-only HTTP streams through the Zyte proxy when configured.
-- Video chunks download in parallel (32 threads by default) while audio downloads in parallel with fewer threads.
-- Progress and timing data are stored in memory for quick polling; logs are written to `app.log`.
-- Completed files are served from the `downloads/` directory via FastAPI's static file mount.
 
 ## Development workflow
 
@@ -88,6 +58,7 @@ uv run ruff check .
 
 # Type checking (strict)
 uv run ty
+uv run mypy
 
 # Run tests
 uv run pytest
@@ -100,22 +71,3 @@ tools like `ruff` and `ty` are available:
 ```bash
 uv sync --dev
 ```
-
-
-## CLI utilities
-
-The repository still ships the `extract-slides` command group for working with presentation files and detecting static segments in videos:
-
-- `extract-slides` – Extract slides from a presentation file. Example:
-
-  ```bash
-  uv run extract-slides extract input.pptx -o output --format png
-  ```
-
-- `video-static-segments` – Analyze a video for static frames using perceptual hashing:
-
-  ```bash
-  uv run video-static-segments --input demo.mp4 --output-dir analysis
-  ```
-
-These commands live under `src/extract_slides/` and share the same virtual environment as the API server.
