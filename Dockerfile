@@ -12,20 +12,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
+# Create a non-root user for security and prepare the work directory
+RUN useradd -m appuser && \
+    mkdir -p /app/models && \
+    chown -R appuser:appuser /app
+
+# Switch to the non-root user before copying files/installing dependencies
+USER appuser
+
 # Set working directory
 WORKDIR /app
 
 # Enable bytecode compilation
 ENV UV_COMPILE_BYTECODE=1
 
-RUN mkdir -p /app/models
+# Place executables in the environment at the front of the path
+ENV PATH="/app/.venv/bin:$PATH"
 
-# Download the EAST text detection model
-# Using the raw GitHub link for direct access to the .pb file
-ADD https://github.com/oyyd/frozen_east_text_detection.pb/raw/master/frozen_east_text_detection.pb /app/models/frozen_east_text_detection.pb
+# Download the EAST text detection model with the correct ownership
+ADD --chown=appuser:appuser https://github.com/oyyd/frozen_east_text_detection.pb/raw/master/frozen_east_text_detection.pb /app/models/frozen_east_text_detection.pb
 
 # Copy dependency files
-COPY pyproject.toml uv.lock ./
+COPY --chown=appuser:appuser pyproject.toml uv.lock ./
 
 # Install dependencies
 # Use --frozen to ensure exact versions from uv.lock
@@ -34,21 +42,14 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 # Copy source code
-COPY src ./src
-COPY README.md ./
+COPY --chown=appuser:appuser src ./src
+COPY --chown=appuser:appuser README.md ./
 
 # Install the project itself (if it has a package structure)
 RUN uv sync --frozen --no-dev
 
-# Create a non-root user for security
-RUN useradd -m appuser && chown -R appuser /app
-USER appuser
-
 # Expose the port the app runs on
 EXPOSE 8000
-
-# Place executables in the environment at the front of the path
-ENV PATH="/app/.venv/bin:$PATH"
 
 # Run the application directly from the virtual environment
 CMD ["uvicorn", "slides_extractor.app_factory:app", "--host", "0.0.0.0", "--port", "8000"]
