@@ -325,39 +325,28 @@ async def extract_and_process_frames(
 ) -> list[dict[str, Any]]:
     """Orchestrate frame extraction and upload pipeline."""
 
-    try:
-        static_segments, total_frames_seen = await _detect_static_segments(
-            video_path, job_id
-        )
+    static_segments, total_frames_seen = await _detect_static_segments(
+        video_path, job_id
+    )
 
-        if not static_segments:
-            await update_job_status(
-                job_id,
-                JobStatus.completed,
-                100.0,
-                "No static segments detected",
-                frame_count=total_frames_seen,
-            )
-            return []
-
-        segment_metadata = await _upload_segments(static_segments, video_id, job_id)
-
+    if not static_segments:
         await update_job_status(
             job_id,
             JobStatus.completed,
             100.0,
-            "Frame extraction completed",
+            "No static segments detected",
             frame_count=total_frames_seen,
         )
+        return []
 
-        return segment_metadata
+    segment_metadata = await _upload_segments(static_segments, video_id, job_id)
 
-    except Exception as exc:  # pragma: no cover - failure handling path
-        await update_job_status(
-            job_id,
-            JobStatus.failed,
-            100.0,
-            "Frame extraction failed",
-            error=str(exc),
-        )
-        raise
+    await update_job_status(
+        job_id,
+        JobStatus.completed,
+        100.0,
+        "Frame extraction completed",
+        frame_count=total_frames_seen,
+    )
+
+    return segment_metadata
