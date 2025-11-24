@@ -66,6 +66,7 @@ from slides_extractor.extract_slides.video_analyzer import (
     Segment,
     SegmentDetector,
 )
+from slides_extractor.extract_slides.text_detection import TextDetector
 from slides_extractor.settings import (
     S3_ACCESS_KEY,
     S3_BUCKET_NAME,
@@ -105,6 +106,7 @@ JOBS: dict[str, dict[str, Any]] = {}
 JOBS_LOCK = asyncio.Lock()
 _S3_CLIENT = None
 _NORMALIZED_S3_ENDPOINT: str | None = None
+_TEXT_DETECTOR: TextDetector | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -274,6 +276,15 @@ async def stream_job_progress(video_id: str) -> AsyncGenerator[str, None]:
         await asyncio.sleep(1)
 
 
+def _get_text_detector() -> TextDetector:
+    """Lazily initialize a shared TextDetector instance."""
+
+    global _TEXT_DETECTOR
+    if _TEXT_DETECTOR is None:
+        _TEXT_DETECTOR = TextDetector()
+    return _TEXT_DETECTOR
+
+
 async def _detect_static_segments(
     video_path: str, video_id: str
 ) -> tuple[list[Segment], list[Segment], Optional[int]]:
@@ -319,6 +330,7 @@ async def _detect_static_segments(
 async def _upload_segments(
     segments: list[Segment],
     video_id: str,
+    text_detector: TextDetector,
     local_output_dir: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """Upload representative frames to S3 or save locally and report progress."""
@@ -331,6 +343,17 @@ async def _upload_segments(
             continue
 
         bgr_frame = cv2.cvtColor(segment.representative_frame, cv2.COLOR_RGB2BGR)
+        has_text, text_confidence = text_detector.detect(bgr_frame)
+
+        if not has_text:
+            await update_job_status(
+                video_id,
+                JobStatus.uploading,
+                60.0 + (idx / total_static) * 40.0,
+                f"Skipped segment {idx}/{total_static} (text confidence {text_confidence:.4f})",
+            )
+            continue
+
         success, buffer = cv2.imencode(
             ".webp", bgr_frame, [cv2.IMWRITE_WEBP_QUALITY, SLIDE_IMAGE_QUALITY]
         )
@@ -339,6 +362,15 @@ async def _upload_segments(
 
         frame_id = f"static_frame_{idx:06d}.webp"
         s3_key = f"video/{video_id}/static_frames/{frame_id}"
+
+        metadata = {
+            "video_id": video_id,
+            "segment_id": str(idx),
+            "start_time": str(segment.start_time),
+            "end_time": str(segment.end_time),
+            "has_text": str(has_text).lower(),
+            "text_conf": f"{text_confidence:.4f}",
+        }
 
         if local_output_dir:
             full_dir = os.path.join(
@@ -356,12 +388,7 @@ async def _upload_segments(
                 buffer.tobytes(),
                 s3_key,
                 content_type="image/webp",
-                metadata={
-                    "video_id": video_id,
-                    "segment_id": str(idx),
-                    "start_time": str(segment.start_time),
-                    "end_time": str(segment.end_time),
-                },
+                metadata=metadata,
             )
             bucket_name = S3_BUCKET_NAME
             uri = f"s3://{S3_BUCKET_NAME}/{s3_key}"
@@ -386,6 +413,8 @@ async def _upload_segments(
                 "s3_key": s3_key,
                 "s3_bucket": bucket_name,
                 "s3_uri": uri,
+                "has_text": has_text,
+                "text_confidence": text_confidence,
             }
         )
 
@@ -423,6 +452,10 @@ def _build_segments_manifest(
             entry["s3_key"] = static_meta.get("s3_key")
             entry["s3_bucket"] = static_meta.get("s3_bucket")
             entry["s3_uri"] = static_meta.get("s3_uri")
+            if "has_text" in static_meta:
+                entry["has_text"] = static_meta.get("has_text")
+            if "text_confidence" in static_meta:
+                entry["text_confidence"] = static_meta.get("text_confidence")
 
         manifest_segments.append(entry)
 
@@ -434,6 +467,7 @@ async def extract_and_process_frames(
 ) -> list[dict[str, Any]]:
     """Orchestrate frame extraction and upload pipeline."""
 
+    text_detector = _get_text_detector()
     static_segments, all_segments, total_frames_seen = await _detect_static_segments(
         video_path, video_id
     )
@@ -449,7 +483,10 @@ async def extract_and_process_frames(
         return []
 
     segment_metadata = await _upload_segments(
-        static_segments, video_id, local_output_dir=local_output_dir
+        static_segments,
+        video_id,
+        text_detector,
+        local_output_dir=local_output_dir,
     )
 
     manifest = _build_segments_manifest(video_id, all_segments, segment_metadata)
