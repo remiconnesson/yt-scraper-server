@@ -113,12 +113,12 @@ def process_video_task(
             logger.error("Job Failed during Phase A (no video stream URL)")
             try:
                 asyncio.run(
-                        update_job_status(
-                            video_id,
-                            JobStatus.failed,
-                            0.0,
-                            "Unable to resolve video stream URL",
-                        )
+                    update_job_status(
+                        video_id,
+                        JobStatus.failed,
+                        0.0,
+                        "Unable to resolve video stream URL",
+                    )
                 )
             except Exception:  # noqa: BLE001
                 logger.exception(

@@ -87,7 +87,7 @@ class JobResponse(BaseModel):
 class JobResult(BaseModel):
     video_id: str
     status: JobStatus
-    metadata_url: Optional[str] = None
+    metadata_uri: Optional[str] = None
     error: Optional[str] = None
     frame_count: Optional[int] = None
 
@@ -161,9 +161,7 @@ def upload_to_s3(
     )
     response.raise_for_status()
 
-    # Construct public URL
-    endpoint = _get_s3_endpoint()
-    return f"{endpoint}/{S3_BUCKET_NAME}/{key}"
+    return f"s3://{S3_BUCKET_NAME}/{key}"
 
 
 async def update_job_status(
@@ -171,14 +169,14 @@ async def update_job_status(
     status: JobStatus,
     progress: float,
     message: str,
-    metadata_url: Optional[str] = None,
+    metadata_uri: Optional[str] = None,
     error: Optional[str] = None,
     frame_count: Optional[int] = None,
 ) -> dict[str, Any]:
     """Update the in-memory job status in a thread-safe manner.
 
     Each update records the provided status, progress percentage, user-facing
-    message, metadata URL (when available), error context, and frame count.
+    message, metadata URI (when available), error context, and frame count.
     Timestamps are stored in UTC ISO 8601 format. Access to the shared ``JOBS``
     registry is protected by an ``asyncio.Lock`` to ensure thread safety.
 
@@ -187,7 +185,7 @@ async def update_job_status(
         status: Current job status value.
         progress: Percentage completion for the job.
         message: Descriptive status message for clients.
-        metadata_url: Optional URL pointing to job metadata output.
+        metadata_uri: Optional URI pointing to job metadata output.
         error: Optional error string describing failures.
         frame_count: Optional count of frames processed for the job.
 
@@ -204,7 +202,7 @@ async def update_job_status(
                 "progress": progress,
                 "message": message,
                 "updated_at": timestamp,
-                "metadata_url": metadata_url,
+                "metadata_uri": metadata_uri,
                 "error": error,
                 "frame_count": frame_count,
             },
@@ -214,7 +212,7 @@ async def update_job_status(
         job_entry["progress"] = progress
         job_entry["message"] = message
         job_entry["updated_at"] = timestamp
-        job_entry["metadata_url"] = metadata_url
+        job_entry["metadata_uri"] = metadata_uri
         job_entry["error"] = error
         job_entry["frame_count"] = frame_count
 
@@ -435,10 +433,10 @@ async def extract_and_process_frames(
 
     if not static_segments:
         await update_job_status(
-        video_id,
-        JobStatus.completed,
-        100.0,
-        "No static segments detected",
+            video_id,
+            JobStatus.completed,
+            100.0,
+            "No static segments detected",
             frame_count=total_frames_seen,
         )
         return []
@@ -456,9 +454,9 @@ async def extract_and_process_frames(
         full_path = os.path.join(full_dir, "video_segments.json")
         with open(full_path, "wb") as f:
             f.write(manifest_bytes)
-        metadata_url = f"file://{os.path.abspath(full_path)}"
+        metadata_uri = f"file://{os.path.abspath(full_path)}"
     else:
-        metadata_url = upload_to_s3(
+        metadata_uri = upload_to_s3(
             manifest_bytes,
             f"video/{video_id}/video_segments.json",
             content_type="application/json",
@@ -471,7 +469,7 @@ async def extract_and_process_frames(
         100.0,
         "Frame extraction completed",
         frame_count=total_frames_seen,
-        metadata_url=metadata_url,
+        metadata_uri=metadata_uri,
     )
 
     return segment_metadata

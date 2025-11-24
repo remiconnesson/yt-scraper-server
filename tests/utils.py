@@ -13,7 +13,7 @@ def create_test_video(
 
     if not out.isOpened():
         # Try fallback codec
-        print(f"Failed to open video writer with mp4v, trying avc1")
+        print("Failed to open video writer with mp4v, trying avc1")
         fourcc = cv2.VideoWriter_fourcc(*"avc1")  # type: ignore # cv2.VideoWriter_fourcc is dynamically bound
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         if not out.isOpened():

@@ -126,14 +126,14 @@ async def process_youtube_video(video_id: str, background_tasks: BackgroundTasks
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
-    metadata_url = check_s3_job_exists(video_id)
-    if metadata_url:
+    metadata_uri = check_s3_job_exists(video_id)
+    if metadata_uri:
         job_state = await update_job_status(
             video_id,
             status=JobStatus.completed,
             progress=100.0,
             message="Job already completed",
-            metadata_url=metadata_url,
+            metadata_uri=metadata_uri,
         )
         return {
             "message": "Job already completed",
@@ -169,14 +169,14 @@ async def get_job(video_id: str) -> dict[str, Any]:
         job = dict(JOBS.get(video_id, {}))
 
     if not job:
-        metadata_url = check_s3_job_exists(video_id)
-        if metadata_url:
+        metadata_uri = check_s3_job_exists(video_id)
+        if metadata_uri:
             job = await update_job_status(
                 video_id,
                 status=JobStatus.completed,
                 progress=100.0,
                 message="Job already completed",
-                metadata_url=metadata_url,
+                metadata_uri=metadata_uri,
             )
         else:
             raise HTTPException(status_code=404, detail=f"Job not found: {video_id}")

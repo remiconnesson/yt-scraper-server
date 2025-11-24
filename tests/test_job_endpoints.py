@@ -62,7 +62,11 @@ def test_stream_job_sends_completion_event() -> None:
 
     with client.stream("GET", f"/jobs/{video_id}/stream") as response:
         assert response.status_code == 200
-        events = [line.decode() if isinstance(line, bytes) else line for line in response.iter_lines() if line]
+        events = [
+            line.decode() if isinstance(line, bytes) else line
+            for line in response.iter_lines()
+            if line
+        ]
 
     assert any(event.startswith("data: ") for event in events)
 

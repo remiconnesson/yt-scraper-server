@@ -11,6 +11,7 @@ from slides_extractor.video_service import (
     _upload_segments,
     _build_segments_manifest,
     JobStatus,
+    S3_BUCKET_NAME,
 )
 from slides_extractor.extract_slides.video_analyzer import Segment
 
@@ -311,9 +312,7 @@ class TestExtractAndProcessFramesIntegration:
 
         assert result == metadata
         mock_detect.assert_called_once_with("/tmp/video.mp4", "video-id")
-        mock_upload.assert_called_once_with(
-            segments, "video-id", local_output_dir=None
-        )
+        mock_upload.assert_called_once_with(segments, "video-id", local_output_dir=None)
         # Verify manifest upload
         assert mock_upload_s3.called
 
@@ -329,9 +328,7 @@ class TestExtractAndProcessFramesIntegration:
 
         mock_detect.return_value = ([], [], 100)
 
-        result = await extract_and_process_frames(
-            "/tmp/video.mp4", "video-id"
-        )
+        result = await extract_and_process_frames("/tmp/video.mp4", "video-id")
 
         assert result == []
 
@@ -521,7 +518,7 @@ class TestExtractAndProcessFramesManifestUpload:
 
         async with JOBS_LOCK:
             assert (
-                JOBS["vid"]["metadata_url"]
-                == "https://example.com/video_segments.json"
+                JOBS["vid"]["metadata_uri"]
+                == f"s3://{S3_BUCKET_NAME}/video/vid/video_segments.json"
             )
             assert JOBS["vid"]["status"] == JobStatus.completed
