@@ -18,6 +18,12 @@ WORKDIR /app
 # Enable bytecode compilation
 ENV UV_COMPILE_BYTECODE=1
 
+RUN mkdir -p /app/models
+
+# Download the EAST text detection model
+# Using the raw GitHub link for direct access to the .pb file
+ADD https://github.com/oyyd/frozen_east_text_detection.pb/raw/master/frozen_east_text_detection.pb /app/models/frozen_east_text_detection.pb
+
 # Copy dependency files
 COPY pyproject.toml uv.lock ./
 
