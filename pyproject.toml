@@ -1,9 +1,9 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
-name = "scraper"
+name = "slides_extractor"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -40,6 +40,3 @@ dev-dependencies = [
     "ty",
 ]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
