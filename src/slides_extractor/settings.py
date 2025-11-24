@@ -46,6 +46,11 @@ ZYTE_API_KEY = os.getenv("ZYTE_API_KEY")
 ZYTE_HOST = os.getenv("ZYTE_HOST", "api.zyte.com")
 DATACENTER_PROXY = os.getenv("DATACENTER_PROXY")
 
+try:
+    SLIDE_IMAGE_QUALITY = int(os.getenv("SLIDE_IMAGE_QUALITY", "80"))
+except ValueError:
+    SLIDE_IMAGE_QUALITY = 80
+
 
 MIN_SIZE_FOR_PARALLEL_DOWNLOAD = 1 * 1024 * 1024  # 1MB
 VIDEO_DOWNLOAD_THREADS = 32

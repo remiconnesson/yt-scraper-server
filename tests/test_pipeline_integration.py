@@ -105,6 +105,6 @@ async def test_full_pipeline_local_save():
                 "video",
                 video_id,
                 "static_frames",
-                "static_frame_000001.png",
+                "static_frame_000001.webp",
             )
         )
