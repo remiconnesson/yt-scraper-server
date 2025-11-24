@@ -4,7 +4,7 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-os.environ["API_PASSWORD"] = "testpassword"
+os.environ["API_PASSWORD"] = "testpassword"  # noqa: S105
 
 from slides_extractor.app_factory import (
     READINESS_EVENT,

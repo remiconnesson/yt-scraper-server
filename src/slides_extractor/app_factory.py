@@ -57,7 +57,7 @@ def _parse_graceful_shutdown_timeout(default_seconds: int = 1800) -> int:
     try:
         return int(raw_value)
     except ValueError:
-        logger.error(
+        logger.exception(
             "Invalid GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS=%s; using default %s",
             raw_value,
             default_seconds,
