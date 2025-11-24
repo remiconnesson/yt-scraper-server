@@ -27,6 +27,9 @@ video_segments.json (example):
         "start_time": 0.0,
         "end_time": 1.0,
         "url": f"{s3_endpoint}/video/video_id/static_frames/static_frame_000001.png",
+        "s3_key": "video/video_id/static_frames/static_frame_000001.png",
+        "s3_bucket": "slides-extractor",
+        "s3_uri": "s3://slides-extractor/video/video_id/static_frames/static_frame_000001.png",
       },
       {
         "kind": "static",
@@ -44,6 +47,7 @@ video_segments.json (example):
 
 import asyncio
 import json
+import os
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from enum import Enum
@@ -276,7 +280,7 @@ async def stream_job_progress(job_id: str) -> AsyncGenerator[str, None]:
 
 async def _detect_static_segments(
     video_path: str, job_id: str
-) -> tuple[list[Segment], Optional[int]]:
+) -> tuple[list[Segment], list[Segment], Optional[int]]:
     """Detect static segments while streaming frames and updating progress."""
 
     streamer = FrameStreamer(video_path)
@@ -313,13 +317,16 @@ async def _detect_static_segments(
         if segment.type == "static" and segment.representative_frame is not None
     ]
 
-    return static_segments, total_frames_seen
+    return static_segments, detector.segments, total_frames_seen
 
 
 async def _upload_segments(
-    segments: list[Segment], video_id: str, job_id: str
+    segments: list[Segment],
+    video_id: str,
+    job_id: str,
+    local_output_dir: Optional[str] = None,
 ) -> list[dict[str, Any]]:
-    """Upload representative frames to S3 and report progress."""
+    """Upload representative frames to S3 or save locally and report progress."""
 
     total_static = len(segments) or 1
     segment_metadata: list[dict[str, Any]] = []
@@ -328,22 +335,39 @@ async def _upload_segments(
         if segment.representative_frame is None:
             continue
 
-        success, buffer = cv2.imencode(".png", segment.representative_frame)
+        bgr_frame = cv2.cvtColor(segment.representative_frame, cv2.COLOR_RGB2BGR)
+        success, buffer = cv2.imencode(".png", bgr_frame)
         if not success:
             raise ValueError("Failed to encode frame to PNG")
 
-        s3_key = f"video/{video_id}/images/segment_{idx:03d}.png"
-        image_url = upload_to_s3(
-            buffer.tobytes(),
-            s3_key,
-            content_type="image/png",
-            metadata={
-                "video_id": video_id,
-                "segment_id": str(idx),
-                "start_time": str(segment.start_time),
-                "end_time": str(segment.end_time),
-            },
-        )
+        frame_id = f"static_frame_{idx:06d}.png"
+        s3_key = f"video/{video_id}/static_frames/{frame_id}"
+
+        if local_output_dir:
+            full_dir = os.path.join(
+                local_output_dir, "video", video_id, "static_frames"
+            )
+            os.makedirs(full_dir, exist_ok=True)
+            full_path = os.path.join(full_dir, frame_id)
+            with open(full_path, "wb") as f:
+                f.write(buffer.tobytes())
+            image_url = f"file://{os.path.abspath(full_path)}"
+            bucket_name = "local"
+            uri = image_url
+        else:
+            image_url = upload_to_s3(
+                buffer.tobytes(),
+                s3_key,
+                content_type="image/png",
+                metadata={
+                    "video_id": video_id,
+                    "segment_id": str(idx),
+                    "start_time": str(segment.start_time),
+                    "end_time": str(segment.end_time),
+                },
+            )
+            bucket_name = S3_BUCKET_NAME
+            uri = f"s3://{S3_BUCKET_NAME}/{s3_key}"
 
         await update_job_status(
             job_id,
@@ -361,18 +385,59 @@ async def _upload_segments(
                 "duration": segment.duration,
                 "frame_count": segment.frame_count,
                 "image_url": image_url,
+                "frame_id": frame_id,
+                "s3_key": s3_key,
+                "s3_bucket": bucket_name,
+                "s3_uri": uri,
             }
         )
 
     return segment_metadata
 
 
+def _build_segments_manifest(
+    video_id: str,
+    segments: list[Segment],
+    static_segment_metadata: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Create a structured manifest for all segments using uploaded frame data."""
+
+    static_index = 0
+    manifest_segments: list[dict[str, Any]] = []
+
+    for segment in segments:
+        entry: dict[str, Any] = {
+            "kind": segment.type,
+            "start_time": segment.start_time,
+            "end_time": segment.end_time,
+        }
+
+        if segment.type == "static":
+            if static_index >= len(static_segment_metadata):
+                raise ValueError(
+                    "Static segment metadata missing for video_segments manifest"
+                )
+
+            static_meta = static_segment_metadata[static_index]
+            static_index += 1
+
+            entry["frame_id"] = static_meta.get("frame_id")
+            entry["url"] = static_meta.get("image_url")
+            entry["s3_key"] = static_meta.get("s3_key")
+            entry["s3_bucket"] = static_meta.get("s3_bucket")
+            entry["s3_uri"] = static_meta.get("s3_uri")
+
+        manifest_segments.append(entry)
+
+    return {video_id: {"segments": manifest_segments}}
+
+
 async def extract_and_process_frames(
-    video_path: str, video_id: str, job_id: str
+    video_path: str, video_id: str, job_id: str, local_output_dir: Optional[str] = None
 ) -> list[dict[str, Any]]:
     """Orchestrate frame extraction and upload pipeline."""
 
-    static_segments, total_frames_seen = await _detect_static_segments(
+    static_segments, all_segments, total_frames_seen = await _detect_static_segments(
         video_path, job_id
     )
 
@@ -386,7 +451,27 @@ async def extract_and_process_frames(
         )
         return []
 
-    segment_metadata = await _upload_segments(static_segments, video_id, job_id)
+    segment_metadata = await _upload_segments(
+        static_segments, video_id, job_id, local_output_dir=local_output_dir
+    )
+
+    manifest = _build_segments_manifest(video_id, all_segments, segment_metadata)
+    manifest_bytes = json.dumps(manifest, indent=2).encode()
+
+    if local_output_dir:
+        full_dir = os.path.join(local_output_dir, "video", video_id)
+        os.makedirs(full_dir, exist_ok=True)
+        full_path = os.path.join(full_dir, "video_segments.json")
+        with open(full_path, "wb") as f:
+            f.write(manifest_bytes)
+        metadata_url = f"file://{os.path.abspath(full_path)}"
+    else:
+        metadata_url = upload_to_s3(
+            manifest_bytes,
+            f"video/{video_id}/video_segments.json",
+            content_type="application/json",
+            metadata={"video_id": video_id},
+        )
 
     await update_job_status(
         job_id,
@@ -394,6 +479,7 @@ async def extract_and_process_frames(
         100.0,
         "Frame extraction completed",
         frame_count=total_frames_seen,
+        metadata_url=metadata_url,
     )
 
     return segment_metadata
