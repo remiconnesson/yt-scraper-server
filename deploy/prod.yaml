@@ -31,7 +31,7 @@ spec:
               command:
               - /bin/sh
               - -c
-              - "curl -s -X POST http://127.0.0.1:8000/drain || true"
+              - "curl -s -X POST -H 'Authorization: Bearer '""${API_PASSWORD}"" http://127.0.0.1:8000/drain || true"
         readinessProbe:
           httpGet:
             path: /healthz/ready
