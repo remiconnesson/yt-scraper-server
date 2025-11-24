@@ -128,8 +128,9 @@ To deploy the application to Kubernetes:
 Deployments are configured to let in-progress work finish before a pod is
 terminated:
 
-- A `preStop` hook calls `POST /drain`, which marks the pod as **not ready** via
-  `/healthz/ready` to stop new work from being scheduled while shutdown begins.
+- A `preStop` hook calls `POST /drain` (authenticated with the shared API
+  password) to mark the pod as **not ready** via `/healthz/ready`, stopping new
+  work from being scheduled while shutdown begins.
 - The application tracks active jobs and download progress; when draining it
   polls those states until everything is complete or the grace period expires
   (configured by `GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS`, default 1800 seconds).
