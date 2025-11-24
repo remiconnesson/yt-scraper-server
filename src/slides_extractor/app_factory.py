@@ -203,6 +203,12 @@ def home():
 
 @app.post("/process/youtube/{video_id}", dependencies=AUTH_DEPENDENCIES)
 async def process_youtube_video(video_id: str, background_tasks: BackgroundTasks):
+    if SHUTDOWN_REQUESTED.is_set():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Draining for shutdown",
+        )
+
     video_url = f"https://www.youtube.com/watch?v={video_id}"
 
     async with JOBS_LOCK:

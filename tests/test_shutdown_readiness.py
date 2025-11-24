@@ -43,6 +43,24 @@ def test_readiness_probe_reflects_drain_state():
     reset_shutdown_state()
 
 
+def test_process_rejects_when_draining():
+    reset_shutdown_state()
+
+    with TestClient(app) as client:
+        client.headers.update({"Authorization": "Bearer testpassword"})
+
+        drain_response = client.post("/drain")
+        assert drain_response.status_code == 202
+
+        process_response = client.post("/process/youtube/testid")
+
+        assert process_response.status_code == 503
+        assert process_response.json()["detail"] == "Draining for shutdown"
+
+    asyncio.run(_clear_jobs())
+    reset_shutdown_state()
+
+
 @pytest.mark.asyncio
 async def test_wait_for_active_jobs_allows_completion():
     reset_shutdown_state()
