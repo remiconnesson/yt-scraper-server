@@ -7,9 +7,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, FastAPI
 
-from slides_extractor.downloader import DOWNLOAD_DIR, LOG_FILE, cleanup_old_downloads
+from slides_extractor.downloader import DOWNLOAD_DIR, cleanup_old_downloads
 from slides_extractor.job_tracker import capture_event_loop, progress_snapshot
 from slides_extractor.video_jobs import process_video_task
+
+LOG_FILE = "app.log"
 
 
 def configure_logging() -> logging.Logger:
