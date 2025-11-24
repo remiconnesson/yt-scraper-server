@@ -17,7 +17,9 @@ from slides_extractor.extract_slides.video_output import (
 
 
 def create_synthetic_stream(
-    sequence: list[tuple[str, int]], rng_seed: int = 42, grid_size: tuple[int, int] = (2, 2)
+    sequence: list[tuple[str, int]],
+    rng_seed: int = 42,
+    grid_size: tuple[int, int] = (2, 2),
 ) -> list[FrameData]:
     """Create frames that represent alternating slides and motion.
 
