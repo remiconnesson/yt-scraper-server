@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
@@ -7,6 +8,7 @@ from slides_extractor.downloader import (
     download_file_parallel,
     get_stream_urls,
 )
+from slides_extractor.video_service import extract_and_process_frames
 
 logger = logging.getLogger("scraper")
 
@@ -17,7 +19,7 @@ def _safe_title(title: str) -> str:
     ).rstrip()
 
 
-def process_video_task(video_url: str) -> None:
+def process_video_task(video_url: str, video_id: str, job_id: str) -> None:
     logger.info(f"Job Started: {video_url}")
     try:
         vid_url, _, title = get_stream_urls(video_url)
@@ -40,6 +42,15 @@ def process_video_task(video_url: str) -> None:
                     logger.error(f"{kind.title()} download failed: {result.error}")
                     return
 
+            logger.info("Starting slide extraction...")
+            video_path = video_result.path or f"{safe_title}_video.mp4"
+            asyncio.run(
+                extract_and_process_frames(
+                    video_path=video_path,
+                    video_id=video_id,
+                    job_id=job_id,
+                )
+            )
             logger.info(f"Job Finished: {safe_title}")
         else:
             logger.error("Job Failed during Phase A")

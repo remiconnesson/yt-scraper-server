@@ -4,6 +4,7 @@ import os
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI
 
@@ -53,8 +54,14 @@ def home():
 @app.post("/process/youtube/{video_id}")
 def process_youtube_video(video_id: str, background_tasks: BackgroundTasks):
     video_url = f"https://www.youtube.com/watch?v={video_id}"
-    background_tasks.add_task(process_video_task, video_url)
-    return {"message": "Download started", "video_id": video_id, "track": "/progress"}
+    job_id = str(uuid4())
+    background_tasks.add_task(process_video_task, video_url, video_id, job_id)
+    return {
+        "message": "Download started",
+        "video_id": video_id,
+        "job_id": job_id,
+        "track": "/progress",
+    }
 
 
 @app.get("/progress")
