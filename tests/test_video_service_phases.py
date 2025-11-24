@@ -3,6 +3,7 @@
 import asyncio
 from unittest.mock import Mock, patch
 
+import cv2
 import numpy as np
 import pytest
 
@@ -13,6 +14,7 @@ from slides_extractor.video_service import (
     JobStatus,
     S3_BUCKET_NAME,
 )
+from slides_extractor.settings import SLIDE_IMAGE_QUALITY
 from slides_extractor.extract_slides.video_analyzer import Segment
 
 
@@ -111,7 +113,7 @@ class TestUploadSegments:
     async def test_upload_segments_success(self, mock_upload, mock_imencode):
         """Test successful upload of segment frames."""
         mock_upload.return_value = (
-            "https://s3-endpoint/bucket/video/abc/images/segment_001.png"
+            "https://s3-endpoint/bucket/video/abc/images/segment_001.webp"
         )
         mock_imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
 
@@ -143,19 +145,25 @@ class TestUploadSegments:
         assert metadata[0]["frame_count"] == 3
         assert (
             metadata[0]["image_url"]
-            == "https://s3-endpoint/bucket/video/abc/images/segment_001.png"
+            == "https://s3-endpoint/bucket/video/abc/images/segment_001.webp"
         )
         assert (
             metadata[0]["s3_key"]
-            == "video/video-abc/static_frames/static_frame_000001.png"
+            == "video/video-abc/static_frames/static_frame_000001.webp"
         )
         assert metadata[0]["s3_bucket"] is not None
         assert (
             metadata[0]["s3_uri"]
-            == f"s3://{metadata[0]['s3_bucket']}/video/video-abc/static_frames/static_frame_000001.png"
+            == f"s3://{metadata[0]['s3_bucket']}/video/video-abc/static_frames/static_frame_000001.webp"
         )
         assert mock_upload.call_count == 2
         assert mock_imencode.call_count == 2
+        assert mock_imencode.call_args[0][0] == ".webp"
+        assert mock_imencode.call_args[0][2] == [
+            cv2.IMWRITE_WEBP_QUALITY,
+            SLIDE_IMAGE_QUALITY,
+        ]
+        assert mock_upload.call_args.kwargs.get("content_type") == "image/webp"
 
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.cv2.imencode")
@@ -211,7 +219,7 @@ class TestUploadSegments:
         # Verify blob key format
         call_args = mock_upload.call_args
         assert (
-            call_args[0][1] == "video/my-video-id/static_frames/static_frame_000001.png"
+            call_args[0][1] == "video/my-video-id/static_frames/static_frame_000001.webp"
         )
 
     @pytest.mark.asyncio
@@ -408,18 +416,18 @@ class TestBuildSegmentsManifest:
 
         static_metadata = [
             {
-                "frame_id": "static_frame_000001.png",
-                "image_url": "https://example.com/static_frame_000001.png",
-                "s3_key": "video/vid-123/static_frames/static_frame_000001.png",
+                "frame_id": "static_frame_000001.webp",
+                "image_url": "https://example.com/static_frame_000001.webp",
+                "s3_key": "video/vid-123/static_frames/static_frame_000001.webp",
                 "s3_bucket": "bucket-1",
-                "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000001.png",
+                "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000001.webp",
             },
             {
-                "frame_id": "static_frame_000002.png",
-                "image_url": "https://example.com/static_frame_000002.png",
-                "s3_key": "video/vid-123/static_frames/static_frame_000002.png",
+                "frame_id": "static_frame_000002.webp",
+                "image_url": "https://example.com/static_frame_000002.webp",
+                "s3_key": "video/vid-123/static_frames/static_frame_000002.webp",
                 "s3_bucket": "bucket-1",
-                "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000002.png",
+                "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000002.webp",
             },
         ]
 
@@ -433,22 +441,22 @@ class TestBuildSegmentsManifest:
                         "kind": "static",
                         "start_time": 1.0,
                         "end_time": 2.0,
-                        "frame_id": "static_frame_000001.png",
-                        "url": "https://example.com/static_frame_000001.png",
-                        "s3_key": "video/vid-123/static_frames/static_frame_000001.png",
+                        "frame_id": "static_frame_000001.webp",
+                        "url": "https://example.com/static_frame_000001.webp",
+                        "s3_key": "video/vid-123/static_frames/static_frame_000001.webp",
                         "s3_bucket": "bucket-1",
-                        "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000001.png",
+                        "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000001.webp",
                     },
                     {"kind": "moving", "start_time": 2.0, "end_time": 3.0},
                     {
                         "kind": "static",
                         "start_time": 3.0,
                         "end_time": 4.0,
-                        "frame_id": "static_frame_000002.png",
-                        "url": "https://example.com/static_frame_000002.png",
-                        "s3_key": "video/vid-123/static_frames/static_frame_000002.png",
+                        "frame_id": "static_frame_000002.webp",
+                        "url": "https://example.com/static_frame_000002.webp",
+                        "s3_key": "video/vid-123/static_frames/static_frame_000002.webp",
                         "s3_bucket": "bucket-1",
-                        "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000002.png",
+                        "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000002.webp",
                     },
                 ]
             }
@@ -498,11 +506,11 @@ class TestExtractAndProcessFramesManifestUpload:
                 "end_time": 1.0,
                 "duration": 1.0,
                 "frame_count": 1,
-                "image_url": "https://example.com/frame.png",
-                "frame_id": "static_frame_000001.png",
-                "s3_key": "video/vid/static_frames/static_frame_000001.png",
+                "image_url": "https://example.com/frame.webp",
+                "frame_id": "static_frame_000001.webp",
+                "s3_key": "video/vid/static_frames/static_frame_000001.webp",
                 "s3_bucket": "bucket",
-                "s3_uri": "s3://bucket/video/vid/static_frames/static_frame_000001.png",
+                "s3_uri": "s3://bucket/video/vid/static_frames/static_frame_000001.webp",
             }
         ]
 

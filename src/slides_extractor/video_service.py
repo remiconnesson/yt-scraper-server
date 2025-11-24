@@ -4,12 +4,12 @@ S3 storage structure:
 video/
   {video_id}/
     static_frames/
-      static_frame_000001.png
-      static_frame_000002.png
+      static_frame_000001.webp
+      static_frame_000002.webp
       ...
     video_segments.json
 
-Where `video_id` is the YouTube video ID for YouTube sources and `frame_000001.png` is the first static frame of the video.
+Where `video_id` is the YouTube video ID for YouTube sources and `frame_000001.webp` is the first static frame of the video.
 
 video_segments.json (example):
 ```
@@ -23,20 +23,20 @@ video_segments.json (example):
       },
       {
         "kind": "static",
-        "frame_id": "static_frame_000001.png",
+        "frame_id": "static_frame_000001.webp",
         "start_time": 0.0,
         "end_time": 1.0,
-        "url": f"{s3_endpoint}/video/video_id/static_frames/static_frame_000001.png",
-        "s3_key": "video/video_id/static_frames/static_frame_000001.png",
+        "url": f"{s3_endpoint}/video/video_id/static_frames/static_frame_000001.webp",
+        "s3_key": "video/video_id/static_frames/static_frame_000001.webp",
         "s3_bucket": "slides-extractor",
-        "s3_uri": "s3://slides-extractor/video/video_id/static_frames/static_frame_000001.png",
+        "s3_uri": "s3://slides-extractor/video/video_id/static_frames/static_frame_000001.webp",
       },
       {
         "kind": "static",
-        "frame_id": "static_frame_000002.png",
+        "frame_id": "static_frame_000002.webp",
         "start_time": 1.0,
         "end_time": 2.0,
-        "url": f"{s3_endpoint}/video/video_id/static_frames/static_frame_000002.png",
+        "url": f"{s3_endpoint}/video/video_id/static_frames/static_frame_000002.webp",
       },
       ...
     ],
@@ -66,7 +66,12 @@ from slides_extractor.extract_slides.video_analyzer import (
     Segment,
     SegmentDetector,
 )
-from slides_extractor.settings import S3_ACCESS_KEY, S3_BUCKET_NAME, S3_ENDPOINT
+from slides_extractor.settings import (
+    S3_ACCESS_KEY,
+    S3_BUCKET_NAME,
+    S3_ENDPOINT,
+    SLIDE_IMAGE_QUALITY,
+)
 
 
 class JobStatus(str, Enum):
@@ -107,7 +112,7 @@ logger = logging.getLogger(__name__)
 def upload_to_s3(
     data: bytes,
     key: str,
-    content_type: str = "image/png",
+    content_type: str = "image/webp",
     metadata: Optional[dict[str, str]] = None,
 ) -> str:
     """Upload image bytes to S3 with metadata.
@@ -119,7 +124,7 @@ def upload_to_s3(
     Args:
         data: Image bytes to upload.
         key: Destination object key within the bucket.
-        content_type: MIME type for the uploaded object; defaults to PNG.
+        content_type: MIME type for the uploaded object; defaults to WebP images.
         metadata: Optional dictionary of metadata to persist alongside the
             object.
 
@@ -326,11 +331,13 @@ async def _upload_segments(
             continue
 
         bgr_frame = cv2.cvtColor(segment.representative_frame, cv2.COLOR_RGB2BGR)
-        success, buffer = cv2.imencode(".png", bgr_frame)
+        success, buffer = cv2.imencode(
+            ".webp", bgr_frame, [cv2.IMWRITE_WEBP_QUALITY, SLIDE_IMAGE_QUALITY]
+        )
         if not success:
-            raise ValueError("Failed to encode frame to PNG")
+            raise ValueError("Failed to encode frame to WebP")
 
-        frame_id = f"static_frame_{idx:06d}.png"
+        frame_id = f"static_frame_{idx:06d}.webp"
         s3_key = f"video/{video_id}/static_frames/{frame_id}"
 
         if local_output_dir:
@@ -348,7 +355,7 @@ async def _upload_segments(
             image_url = upload_to_s3(
                 buffer.tobytes(),
                 s3_key,
-                content_type="image/png",
+                content_type="image/webp",
                 metadata={
                     "video_id": video_id,
                     "segment_id": str(idx),
