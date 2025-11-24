@@ -132,7 +132,7 @@ def test_compute_frame_hash_uses_center_crop() -> None:
     bordered_frame[:, :2] = 255
     bordered_frame[:, -2:] = 255
 
-    expected_crop = Image.fromarray(bordered_frame).crop((1, 1, 9, 9))
+    expected_crop = Image.fromarray(bordered_frame).crop((2, 2, 8, 8))
     expected_hash = imagehash.phash(expected_crop)
 
     hashes = _compute_frame_hash((bordered_frame, 1, 1))
