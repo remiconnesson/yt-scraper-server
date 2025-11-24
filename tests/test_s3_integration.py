@@ -23,8 +23,12 @@ def test_s3_upload_flow():
     4. Public access fails
     5. Presigned URL works
     """
-    assert S3_ENDPOINT
-    assert S3_ACCESS_KEY
+    if not S3_ENDPOINT or not S3_ACCESS_KEY:
+        pytest.skip("S3 configuration not available, skipping integration test")
+
+    # Type narrowing for static analysis
+    assert S3_ENDPOINT is not None
+    assert S3_ACCESS_KEY is not None
 
     # Create a dummy image
     img = np.zeros((100, 100, 3), dtype=np.uint8)
@@ -37,14 +41,14 @@ def test_s3_upload_flow():
     key = f"tests_video/integration_test_{timestamp}.png"
 
     # 1. Test Upload
-    public_url = upload_to_s3(
+    s3_uri = upload_to_s3(
         data=expected_bytes,
         key=key,
         content_type="image/png",
         metadata={"test": "true", "timestamp": timestamp},
     )
-    assert public_url.startswith(S3_ENDPOINT.rstrip("/"))
-    assert key in public_url
+    assert s3_uri.startswith(f"s3://{S3_BUCKET_NAME}")
+    assert key in s3_uri
 
     # Setup boto3 client for verification
     s3 = boto3.client(
@@ -75,7 +79,8 @@ def test_s3_upload_flow():
     os.remove(tmp_path)
 
     # 4. Verify public access is denied
-    r = requests.head(public_url)
+    public_http_url = f"{S3_ENDPOINT.rstrip('/')}/{S3_BUCKET_NAME}/{key}"
+    r = requests.head(public_http_url)
     assert r.status_code != 200, "Public URL should not be accessible"
 
     # 5. Verify presigned URL access

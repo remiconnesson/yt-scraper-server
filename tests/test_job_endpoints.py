@@ -3,7 +3,7 @@ import os
 
 from fastapi.testclient import TestClient
 
-os.environ.setdefault("API_PASSWORD", "testpassword")
+os.environ["API_PASSWORD"] = "testpassword"
 
 from slides_extractor.app_factory import app
 from slides_extractor.video_service import JOBS, JOBS_LOCK, JobStatus, update_job_status

@@ -44,8 +44,15 @@ async def test_full_pipeline_with_test_bucket():
         # Patch the bucket name to use 'test_bucket' (or a specific test bucket name you use)
         # In a real scenario, you might use moto to mock S3 entirely, or a dedicated test bucket.
         # Since the user asked to use the 'test_bucket', we patch it here.
-        with patch(
-            "slides_extractor.settings.S3_BUCKET_NAME", "test-bucket-slides-extractor"
+        with (
+            patch(
+                "slides_extractor.settings.S3_BUCKET_NAME",
+                "test-bucket-slides-extractor",
+            ),
+            patch(
+                "slides_extractor.video_service.S3_BUCKET_NAME",
+                "test-bucket-slides-extractor",
+            ),
         ):
             # We also need to ensure S3_ACCESS_KEY and S3_ENDPOINT are set, or mock them if we want to avoid real calls.
             # If we want real integration tests, we assume env vars are set.
@@ -66,7 +73,7 @@ async def test_full_pipeline_with_test_bucket():
                 assert len(metadata) == 3
                 for segment in metadata:
                     assert segment["s3_bucket"] == "test-bucket-slides-extractor"
-                    assert segment["image_url"].startswith("http")
+                    assert segment["image_url"].startswith("s3://")
 
             except Exception as e:
                 pytest.fail(f"Pipeline failed (check S3 creds?): {e}")

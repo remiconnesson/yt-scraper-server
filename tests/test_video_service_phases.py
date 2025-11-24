@@ -506,7 +506,9 @@ class TestExtractAndProcessFramesManifestUpload:
             }
         ]
 
-        mock_upload_to_s3.return_value = "https://example.com/video_segments.json"
+        mock_upload_to_s3.return_value = (
+            f"s3://{S3_BUCKET_NAME}/video/vid/video_segments.json"
+        )
 
         await extract_and_process_frames("/tmp/video.mp4", "vid")
 
