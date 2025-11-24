@@ -6,7 +6,6 @@ from typing import Any, Callable, TypeVar
 import click
 
 from slides_extractor.extract_slides import __version__
-from slides_extractor.extract_slides.extractor import extract_slides
 from slides_extractor.extract_slides.video_analyzer import AnalysisConfig, analyze_video
 from slides_extractor.extract_slides.video_output import (
     generate_summary,
@@ -50,46 +49,6 @@ def main() -> None:
     A command-line tool for extracting slides from various presentation formats.
     """
     pass
-
-
-@main.command()
-@click.argument("input_file", type=click.Path(exists=True))
-@click.option(
-    "--output-dir",
-    "-o",
-    type=click.Path(),
-    default="output",
-    help="Output directory for extracted slides",
-)
-@click.option(
-    "--format",
-    "-f",
-    type=click.Choice(["png", "jpg", "pdf"], case_sensitive=False),
-    default="png",
-    help="Output format for slides",
-)
-@click.option(
-    "--verbose",
-    "-v",
-    is_flag=True,
-    help="Enable verbose output",
-)
-def extract(input_file: str, output_dir: str, format: str, verbose: bool) -> None:
-    """Extract slides from a presentation file.
-
-    INPUT_FILE: Path to the presentation file to extract slides from
-    """
-    if verbose:
-        click.echo(f"Extracting slides from: {input_file}")
-        click.echo(f"Output directory: {output_dir}")
-        click.echo(f"Output format: {format}")
-
-    try:
-        result = extract_slides(input_file, output_dir, format, verbose)
-        click.echo(f"✓ Successfully extracted {result['count']} slides to {output_dir}")
-    except Exception as e:
-        click.echo(f"✗ Error: {e}", err=True)
-        raise click.Abort() from e
 
 
 @main.command()
