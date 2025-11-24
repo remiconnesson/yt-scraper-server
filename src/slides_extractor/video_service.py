@@ -8,8 +8,7 @@ video/
       segment_002.png
     metadata.json
 
-Where `video_id` is the YouTube video ID for YouTube sources or the first 16
-characters of the SHA256 hash for S3-sourced videos.
+Where `video_id` is the YouTube video ID for YouTube sources.
 """
 
 import asyncio
