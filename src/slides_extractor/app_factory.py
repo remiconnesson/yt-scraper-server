@@ -45,18 +45,17 @@ def home():
     return {
         "status": "Running on VPS",
         "endpoints": {
-            "start": "/scrape?url=...",
+            "process": "/process/youtube/{video_id}",
             "progress": "/progress",
-            "logs": "/logs",
-            "files": "/list",
         },
     }
 
 
-@app.get("/scrape")
-def scrape(url: str, background_tasks: BackgroundTasks):
-    background_tasks.add_task(process_video_task, url)
-    return {"message": "Download started", "url": url, "track": "/progress"}
+@app.post("/process/youtube/{video_id}")
+def process_youtube_video(video_id: str, background_tasks: BackgroundTasks):
+    video_url = f"https://www.youtube.com/watch?v={video_id}"
+    background_tasks.add_task(process_video_task, video_url)
+    return {"message": "Download started", "video_id": video_id, "track": "/progress"}
 
 
 @app.get("/progress")
