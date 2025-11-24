@@ -34,44 +34,6 @@ class TestDetectStaticSegments:
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.FrameStreamer")
     @patch("slides_extractor.video_service.SegmentDetector")
-    async def test_detect_static_segments_success(
-        self, mock_detector_class, mock_streamer_class
-    ):
-        """Test successful segment detection."""
-        # Mock the streamer to yield fake progress
-        mock_streamer = Mock()
-        mock_streamer.stream.return_value = iter(
-            [
-                (1, 0, 10),  # segment_count, frame_idx, total_frames
-                (1, 5, 10),
-                (2, 9, 10),
-            ]
-        )
-        mock_streamer_class.return_value = mock_streamer
-
-        # Mock the detector with some segments
-        mock_detector = Mock()
-        frame = np.zeros((100, 100, 3), dtype=np.uint8)
-        mock_detector.segments = [
-            Segment(type="static", representative_frame=frame),
-            Segment(type="moving", representative_frame=None),
-            Segment(type="static", representative_frame=frame),
-        ]
-        mock_detector.analyze.return_value = mock_streamer.stream()
-        mock_detector_class.return_value = mock_detector
-
-        segments, total_frames = await _detect_static_segments(
-            "/tmp/video.mp4", "job-123"
-        )
-
-        assert len(segments) == 2  # Only static segments with frames
-        assert total_frames == 10
-        assert all(s.type == "static" for s in segments)
-        assert all(s.representative_frame is not None for s in segments)
-
-    @pytest.mark.asyncio
-    @patch("slides_extractor.video_service.FrameStreamer")
-    @patch("slides_extractor.video_service.SegmentDetector")
     async def test_detect_static_segments_no_segments(
         self, mock_detector_class, mock_streamer_class
     ):

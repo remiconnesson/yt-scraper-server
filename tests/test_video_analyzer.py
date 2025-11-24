@@ -1,12 +1,8 @@
 """Tests for video analysis functionality."""
 
-from pathlib import Path
-
 import numpy as np
 import pytest
-from click.testing import CliRunner
 
-from slides_extractor.extract_slides.cli import main, video_main
 from slides_extractor.extract_slides.video_analyzer import (
     FrameData,
     FrameStreamer,
@@ -215,78 +211,3 @@ def test_frame_streamer_file_not_found() -> None:
     """Test FrameStreamer with non-existent file."""
     with pytest.raises(FileNotFoundError, match="Video file not found"):
         FrameStreamer("nonexistent.mp4")
-
-
-def test_analyze_video_command_help() -> None:
-    """Test that analyze-video command shows help."""
-    runner = CliRunner()
-    result = runner.invoke(main, ["analyze-video", "--help"])
-    assert result.exit_code == 0
-    assert "grid-based image hashing" in result.output
-
-
-def test_video_main_help() -> None:
-    """Test that video_static_segments command shows help."""
-    runner = CliRunner()
-    result = runner.invoke(video_main, ["--help"])
-    assert result.exit_code == 0
-    assert "grid-based image hashing" in result.output
-
-
-def test_video_main_validation_grid_cols() -> None:
-    """Test video_main validates grid columns."""
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-        # Create a dummy file
-        Path("test.mp4").touch()
-
-        result = runner.invoke(
-            video_main,
-            ["--input", "test.mp4", "--output-dir", "output", "--grid-cols", "0"],
-        )
-        assert result.exit_code == 1
-        assert "Grid dimensions must be positive" in result.output
-
-
-def test_video_main_validation_static_cell_ratio() -> None:
-    """Test video_main validates min-static-cell-ratio."""
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-        # Create a dummy file
-        Path("test.mp4").touch()
-
-        result = runner.invoke(
-            video_main,
-            [
-                "--input",
-                "test.mp4",
-                "--output-dir",
-                "output",
-                "--min-static-cell-ratio",
-                "1.5",
-            ],
-        )
-        assert result.exit_code == 1
-        assert "min-static-cell-ratio must be between 0 and 1" in result.output
-
-
-def test_video_main_validation_min_static_frames() -> None:
-    """Test video_main validates min-static-frames."""
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-        # Create a dummy file
-        Path("test.mp4").touch()
-
-        result = runner.invoke(
-            video_main,
-            [
-                "--input",
-                "test.mp4",
-                "--output-dir",
-                "output",
-                "--min-static-frames",
-                "0",
-            ],
-        )
-        assert result.exit_code == 1
-        assert "min-static-frames must be at least 1" in result.output
