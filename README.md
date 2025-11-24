@@ -25,6 +25,9 @@ A python package with several concerns:
    - `ZYTE_API_KEY` (required for Zyte proxy usage)
    - `ZYTE_HOST` (defaults to `api.zyte.com`)
    - `DATACENTER_PROXY` (optional `user:pass@host:port` or full URL)
+   - `S3_ENDPOINT` (required for slide upload)
+   - `S3_ACCESS_KEY` (required)
+   - `S3_BUCKET_NAME` (optional, defaults to `slides-extractor`)
 
 3. Run the API server:
 

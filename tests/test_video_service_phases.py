@@ -105,11 +105,11 @@ class TestUploadSegments:
 
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.cv2.imencode")
-    @patch("slides_extractor.video_service.upload_to_vercel_blob")
+    @patch("slides_extractor.video_service.upload_to_s3")
     async def test_upload_segments_success(self, mock_upload, mock_imencode):
         """Test successful upload of segment frames."""
         mock_upload.return_value = (
-            "https://blob.vercel-storage.com/video/abc/images/segment_001.png"
+            "https://s3-endpoint/bucket/video/abc/images/segment_001.png"
         )
         mock_imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
 
@@ -141,17 +141,17 @@ class TestUploadSegments:
         assert metadata[0]["frame_count"] == 3
         assert (
             metadata[0]["image_url"]
-            == "https://blob.vercel-storage.com/video/abc/images/segment_001.png"
+            == "https://s3-endpoint/bucket/video/abc/images/segment_001.png"
         )
         assert mock_upload.call_count == 2
         assert mock_imencode.call_count == 2
 
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.cv2.imencode")
-    @patch("slides_extractor.video_service.upload_to_vercel_blob")
+    @patch("slides_extractor.video_service.upload_to_s3")
     async def test_upload_segments_correct_blob_keys(self, mock_upload, mock_imencode):
         """Test that blob keys are formatted correctly."""
-        mock_upload.return_value = "https://blob.vercel-storage.com/url"
+        mock_upload.return_value = "https://s3-endpoint/bucket/url"
         mock_imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
 
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
@@ -173,10 +173,10 @@ class TestUploadSegments:
 
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.cv2.imencode")
-    @patch("slides_extractor.video_service.upload_to_vercel_blob")
+    @patch("slides_extractor.video_service.upload_to_s3")
     async def test_upload_segments_includes_metadata(self, mock_upload, mock_imencode):
         """Test that blob metadata is included."""
-        mock_upload.return_value = "https://blob.vercel-storage.com/url"
+        mock_upload.return_value = "https://s3-endpoint/bucket/url"
         mock_imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
 
         frame = np.zeros((25, 25, 3), dtype=np.uint8)
@@ -201,12 +201,12 @@ class TestUploadSegments:
 
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.cv2.imencode")
-    @patch("slides_extractor.video_service.upload_to_vercel_blob")
+    @patch("slides_extractor.video_service.upload_to_s3")
     async def test_upload_segments_updates_progress(self, mock_upload, mock_imencode):
         """Test that progress updates during upload."""
         from slides_extractor.video_service import JOBS, JOBS_LOCK
 
-        mock_upload.return_value = "https://blob.vercel-storage.com/url"
+        mock_upload.return_value = "https://s3-endpoint/bucket/url"
         mock_imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
 
         frame = np.zeros((10, 10, 3), dtype=np.uint8)
@@ -250,7 +250,7 @@ class TestExtractAndProcessFramesIntegration:
         metadata = [
             {
                 "segment_id": 1,
-                "image_url": "https://blob.vercel-storage.com/url",
+                "image_url": "https://s3-endpoint/bucket/url",
             }
         ]
         mock_upload.return_value = metadata

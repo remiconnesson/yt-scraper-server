@@ -44,21 +44,22 @@ video_segments.json (example):
 
 import asyncio
 import json
-import os
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
+
+import boto3
+from botocore.client import Config
+from pydantic import BaseModel
+import cv2
 
 from slides_extractor.extract_slides.video_analyzer import (
     FrameStreamer,
     Segment,
     SegmentDetector,
 )
-
-import cv2
-import requests
-from pydantic import BaseModel
+from slides_extractor.settings import S3_ACCESS_KEY, S3_BUCKET_NAME, S3_ENDPOINT
 
 
 class JobStatus(str, Enum):
@@ -93,23 +94,20 @@ JOBS: dict[str, dict[str, Any]] = {}
 JOBS_LOCK = asyncio.Lock()
 
 
-def upload_to_vercel_blob(
+def upload_to_s3(
     data: bytes,
     key: str,
     content_type: str = "image/png",
     metadata: Optional[dict[str, str]] = None,
 ) -> str:
-    """Upload image bytes to Vercel Blob with metadata.
+    """Upload image bytes to S3 with metadata.
 
-    The upload uses the Vercel Blob REST API with a read/write or write-only
-    token provided via ``VERCEL_BLOB_READ_WRITE_TOKEN`` or
-    ``VERCEL_BLOB_WRITE_ONLY_TOKEN``. Objects are uploaded with public access
-    enabled so that returned URLs are directly accessible. Metadata, when
-    supplied, is serialized to JSON and attached to the blob for traceability.
+    The upload uses the S3 API via boto3. Objects are uploaded with public access
+    enabled (public-read) so that returned URLs are directly accessible.
 
     Args:
         data: Image bytes to upload.
-        key: Destination object key within the blob store.
+        key: Destination object key within the bucket.
         content_type: MIME type for the uploaded object; defaults to PNG.
         metadata: Optional dictionary of metadata to persist alongside the
             object.
@@ -117,39 +115,39 @@ def upload_to_vercel_blob(
     Returns:
         Public URL of the uploaded object.
     """
-    token = os.getenv("VERCEL_BLOB_READ_WRITE_TOKEN") or os.getenv(
-        "VERCEL_BLOB_WRITE_ONLY_TOKEN"
-    )
-
-    if not token:
+    if not S3_ENDPOINT or not S3_ACCESS_KEY:
         raise RuntimeError(
-            "Vercel Blob token missing; set VERCEL_BLOB_READ_WRITE_TOKEN or "
-            "VERCEL_BLOB_WRITE_ONLY_TOKEN"
+            "S3 configuration missing; set S3_ENDPOINT and S3_ACCESS_KEY"
         )
 
-    form_fields: dict[str, str] = {
-        "access": "public",
-        "slug": key,
-        "contentType": content_type,
+    # Configure S3 client
+    # Note: S3_ACCESS_KEY is used for both ID and Secret as per environment spec
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=S3_ENDPOINT,
+        aws_access_key_id=S3_ACCESS_KEY,
+        aws_secret_access_key=S3_ACCESS_KEY,
+        config=Config(signature_version="s3v4"),
+    )
+
+    extra_args: dict[str, Any] = {
+        "ContentType": content_type,
+        "ACL": "public-read",
     }
     if metadata:
-        form_fields["metadata"] = json.dumps(metadata)
+        extra_args["Metadata"] = metadata
 
-    response = requests.post(
-        "https://api.vercel.com/v2/blobs",
-        headers={"Authorization": f"Bearer {token}"},
-        files={"file": (key, data, content_type)},
-        data=form_fields,
-        timeout=30,
+    s3.put_object(
+        Bucket=S3_BUCKET_NAME,
+        Key=key,
+        Body=data,
+        **extra_args,
     )
-    response.raise_for_status()
 
-    payload = response.json()
-    url = payload.get("url")
-    if not url:
-        raise ValueError("Vercel Blob response did not include a URL")
-
-    return url
+    # Construct public URL
+    endpoint = S3_ENDPOINT.rstrip("/")
+    # Assuming path-style access or that endpoint is the public root
+    return f"{endpoint}/{key}"
 
 
 async def update_job_status(
@@ -302,7 +300,7 @@ async def _detect_static_segments(
 async def _upload_segments(
     segments: list[Segment], video_id: str, job_id: str
 ) -> list[dict[str, Any]]:
-    """Upload representative frames to Vercel Blob and report progress."""
+    """Upload representative frames to S3 and report progress."""
 
     total_static = len(segments) or 1
     segment_metadata: list[dict[str, Any]] = []
@@ -315,10 +313,10 @@ async def _upload_segments(
         if not success:
             raise ValueError("Failed to encode frame to PNG")
 
-        blob_key = f"video/{video_id}/images/segment_{idx:03d}.png"
-        image_url = upload_to_vercel_blob(
+        s3_key = f"video/{video_id}/images/segment_{idx:03d}.png"
+        image_url = upload_to_s3(
             buffer.tobytes(),
-            blob_key,
+            s3_key,
             content_type="image/png",
             metadata={
                 "video_id": video_id,
