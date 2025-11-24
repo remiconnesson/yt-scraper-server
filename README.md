@@ -3,9 +3,8 @@
 A python package with several concerns:
 1. Downloading YouTube videos and audio streams
 2. Extracting slides from videos frames
-3. [Optional] Compressing slides to WebP format
-4. Uploading slides to S3 with metadata about the timestamps of the slides in the video
-5. Running a webserver and update clients about the progress of the downloads and the slides extraction
+3. Uploading slides to S3 with metadata about the timestamps of the slides in the video
+4. Running a webserver and update clients about the progress of the downloads and the slides extraction
 
 ## Requirements
 

@@ -7,7 +7,6 @@ import numpy as np
 import pytest
 
 from slides_extractor.video_service import (
-    _compress_segments,
     _detect_static_segments,
     _upload_segments,
     JobStatus,
@@ -88,8 +87,8 @@ class TestDetectStaticSegments:
             assert JOBS["job-123"]["status"] == JobStatus.extracting
 
 
-class TestCompressSegments:
-    """Test compression phase."""
+class TestUploadSegments:
+    """Test upload phase."""
 
     @pytest.fixture(autouse=True)
     def cleanup_jobs(self):
@@ -105,13 +104,14 @@ class TestCompressSegments:
         asyncio.run(_clear())
 
     @pytest.mark.asyncio
-    @patch("slides_extractor.video_service.compress_image")
-    async def test_compress_segments_success(self, mock_compress):
-        """Test successful compression of segments."""
-        mock_compress.return_value = (
-            b"compressed_data",
-            {"format": "WEBP", "quality": 90, "has_text": True},
+    @patch("slides_extractor.video_service.cv2.imencode")
+    @patch("slides_extractor.video_service.upload_to_vercel_blob")
+    async def test_upload_segments_success(self, mock_upload, mock_imencode):
+        """Test successful upload of segment frames."""
+        mock_upload.return_value = (
+            "https://blob.vercel-storage.com/video/abc/images/segment_001.png"
         )
+        mock_imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
 
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
         segments = [
@@ -131,103 +131,7 @@ class TestCompressSegments:
             ),
         ]
 
-        compressed = await _compress_segments(segments, "job-123")
-
-        assert len(compressed) == 2
-        assert compressed[0][0] == 1  # idx
-        assert compressed[0][2] == b"compressed_data"  # compressed bytes
-        assert compressed[1][0] == 2  # idx
-        assert mock_compress.call_count == 2
-
-    @pytest.mark.asyncio
-    @patch("slides_extractor.video_service.compress_image")
-    async def test_compress_segments_skips_none_frames(self, mock_compress):
-        """Test that segments without frames are skipped."""
-        mock_compress.return_value = (b"data", {"quality": 90})
-
-        frame = np.zeros((100, 100, 3), dtype=np.uint8)
-        segments = [
-            Segment(type="static", representative_frame=frame),
-            Segment(type="static", representative_frame=None),  # Should skip
-            Segment(type="static", representative_frame=frame),
-        ]
-
-        compressed = await _compress_segments(segments, "job-123")
-
-        assert len(compressed) == 2
-        assert mock_compress.call_count == 2
-
-    @pytest.mark.asyncio
-    @patch("slides_extractor.video_service.compress_image")
-    async def test_compress_segments_updates_progress(self, mock_compress):
-        """Test that progress updates during compression."""
-        from slides_extractor.video_service import JOBS, JOBS_LOCK
-
-        mock_compress.return_value = (b"data", {"quality": 90})
-
-        frame = np.zeros((100, 100, 3), dtype=np.uint8)
-        segments = [
-            Segment(type="static", representative_frame=frame, frames=[1, 2, 3]),
-        ]
-
-        await _compress_segments(segments, "job-123")
-
-        async with JOBS_LOCK:
-            assert "job-123" in JOBS
-            assert JOBS["job-123"]["status"] == JobStatus.compressing
-
-
-class TestUploadSegments:
-    """Test upload phase."""
-
-    @pytest.fixture(autouse=True)
-    def cleanup_jobs(self):
-        """Clear JOBS before each test."""
-        from slides_extractor.video_service import JOBS, JOBS_LOCK
-
-        async def _clear() -> None:
-            async with JOBS_LOCK:
-                JOBS.clear()
-
-        asyncio.run(_clear())
-        yield
-        asyncio.run(_clear())
-
-    @pytest.mark.asyncio
-    @patch("slides_extractor.video_service.upload_to_vercel_blob")
-    async def test_upload_segments_success(self, mock_upload):
-        """Test successful upload of compressed segments."""
-        mock_upload.return_value = (
-            "https://blob.vercel-storage.com/video/abc/images/segment_001.webp"
-        )
-
-        np.zeros((100, 100, 3), dtype=np.uint8)
-        compressed_segments = [
-            (
-                1,
-                Segment(
-                    type="static",
-                    start_time=0.0,
-                    end_time=5.0,
-                    frames=[0, 1, 2],
-                ),
-                b"compressed_data_1",
-                {"quality": 90, "has_text": True},
-            ),
-            (
-                2,
-                Segment(
-                    type="static",
-                    start_time=10.0,
-                    end_time=15.0,
-                    frames=[10, 11, 12],
-                ),
-                b"compressed_data_2",
-                {"quality": 85, "has_text": False},
-            ),
-        ]
-
-        metadata = await _upload_segments(compressed_segments, "video-abc", "job-123")
+        metadata = await _upload_segments(segments, "video-abc", "job-123")
 
         assert len(metadata) == 2
         assert metadata[0]["segment_id"] == 1
@@ -237,49 +141,56 @@ class TestUploadSegments:
         assert metadata[0]["frame_count"] == 3
         assert (
             metadata[0]["image_url"]
-            == "https://blob.vercel-storage.com/video/abc/images/segment_001.webp"
+            == "https://blob.vercel-storage.com/video/abc/images/segment_001.png"
         )
-        assert metadata[0]["compression_info"]["quality"] == 90
-
         assert mock_upload.call_count == 2
+        assert mock_imencode.call_count == 2
 
     @pytest.mark.asyncio
+    @patch("slides_extractor.video_service.cv2.imencode")
     @patch("slides_extractor.video_service.upload_to_vercel_blob")
-    async def test_upload_segments_correct_blob_keys(self, mock_upload):
+    async def test_upload_segments_correct_blob_keys(self, mock_upload, mock_imencode):
         """Test that blob keys are formatted correctly."""
         mock_upload.return_value = "https://blob.vercel-storage.com/url"
+        mock_imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
 
-        compressed_segments = [
-            (
-                5,
-                Segment(type="static", start_time=0.0, end_time=5.0, frames=[0]),
-                b"data",
-                {"quality": 90},
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        segments = [
+            Segment(
+                type="static",
+                start_time=0.0,
+                end_time=5.0,
+                representative_frame=frame,
+                frames=[0],
             ),
         ]
 
-        await _upload_segments(compressed_segments, "my-video-id", "job-123")
+        await _upload_segments(segments, "my-video-id", "job-123")
 
         # Verify blob key format
         call_args = mock_upload.call_args
-        assert call_args[0][1] == "video/my-video-id/images/segment_005.webp"
+        assert call_args[0][1] == "video/my-video-id/images/segment_001.png"
 
     @pytest.mark.asyncio
+    @patch("slides_extractor.video_service.cv2.imencode")
     @patch("slides_extractor.video_service.upload_to_vercel_blob")
-    async def test_upload_segments_includes_metadata(self, mock_upload):
+    async def test_upload_segments_includes_metadata(self, mock_upload, mock_imencode):
         """Test that blob metadata is included."""
         mock_upload.return_value = "https://blob.vercel-storage.com/url"
+        mock_imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
 
-        compressed_segments = [
-            (
-                1,
-                Segment(type="static", start_time=1.5, end_time=6.5, frames=[1]),
-                b"data",
-                {"quality": 90},
+        frame = np.zeros((25, 25, 3), dtype=np.uint8)
+        segments = [
+            Segment(
+                type="static",
+                start_time=1.5,
+                end_time=6.5,
+                representative_frame=frame,
+                frames=[1],
             ),
         ]
 
-        await _upload_segments(compressed_segments, "video-id", "job-123")
+        await _upload_segments(segments, "video-id", "job-123")
 
         call_args = mock_upload.call_args
         metadata = call_args[1]["metadata"]
@@ -289,18 +200,21 @@ class TestUploadSegments:
         assert metadata["end_time"] == "6.5"
 
     @pytest.mark.asyncio
+    @patch("slides_extractor.video_service.cv2.imencode")
     @patch("slides_extractor.video_service.upload_to_vercel_blob")
-    async def test_upload_segments_updates_progress(self, mock_upload):
+    async def test_upload_segments_updates_progress(self, mock_upload, mock_imencode):
         """Test that progress updates during upload."""
         from slides_extractor.video_service import JOBS, JOBS_LOCK
 
         mock_upload.return_value = "https://blob.vercel-storage.com/url"
+        mock_imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
 
-        compressed_segments = [
-            (1, Segment(type="static", frames=[1]), b"data", {"quality": 90}),
+        frame = np.zeros((10, 10, 3), dtype=np.uint8)
+        segments = [
+            Segment(type="static", representative_frame=frame, frames=[1]),
         ]
 
-        await _upload_segments(compressed_segments, "video-id", "job-123")
+        await _upload_segments(segments, "video-id", "job-123")
 
         async with JOBS_LOCK:
             assert "job-123" in JOBS
@@ -325,23 +239,18 @@ class TestExtractAndProcessFramesIntegration:
 
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service._upload_segments")
-    @patch("slides_extractor.video_service._compress_segments")
     @patch("slides_extractor.video_service._detect_static_segments")
-    async def test_full_pipeline_success(self, mock_detect, mock_compress, mock_upload):
-        """Test the full orchestration of all three phases."""
+    async def test_full_pipeline_success(self, mock_detect, mock_upload):
+        """Test the full orchestration of detection and upload phases."""
         # Mock each phase
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
         segments = [Segment(type="static", representative_frame=frame, frames=[1, 2])]
         mock_detect.return_value = (segments, 100)
 
-        compressed = [(1, segments[0], b"data", {"quality": 90})]
-        mock_compress.return_value = compressed
-
         metadata = [
             {
                 "segment_id": 1,
                 "image_url": "https://blob.vercel-storage.com/url",
-                "compression_info": {"quality": 90},
             }
         ]
         mock_upload.return_value = metadata
@@ -355,8 +264,7 @@ class TestExtractAndProcessFramesIntegration:
 
         assert result == metadata
         mock_detect.assert_called_once_with("/tmp/video.mp4", "job-123")
-        mock_compress.assert_called_once_with(segments, "job-123")
-        mock_upload.assert_called_once_with(compressed, "video-id", "job-123")
+        mock_upload.assert_called_once_with(segments, "video-id", "job-123")
 
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service._detect_static_segments")
