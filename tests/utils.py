@@ -8,13 +8,13 @@ def create_test_video(
     """Create a synthetic test video with alternating static slides and motion."""
     # Video properties
     width, height = 640, 480
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore # cv2.VideoWriter_fourcc is dynamically bound
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
     if not out.isOpened():
         # Try fallback codec
         print(f"Failed to open video writer with mp4v, trying avc1")
-        fourcc = cv2.VideoWriter_fourcc(*"avc1")
+        fourcc = cv2.VideoWriter_fourcc(*"avc1")  # type: ignore # cv2.VideoWriter_fourcc is dynamically bound
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         if not out.isOpened():
             raise RuntimeError(f"Failed to create video writer at {output_path}")
