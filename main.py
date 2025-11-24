@@ -35,11 +35,11 @@ EVENT_LOOP: asyncio.AbstractEventLoop | None = None
 # --- LOGGING ---
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(LOG_FILE, mode='a', encoding='utf-8')
-    ]
+        logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8"),
+    ],
 )
 logger = logging.getLogger("scraper")
 
@@ -86,7 +86,9 @@ PARALLEL_CHUNK_SIZE = 1024 * 1024
 SINGLE_THREAD_CHUNK_SIZE = 32 * 1024
 DEFAULT_RETENTION_HOURS = 24
 DOWNLOAD_RETENTION_HOURS_RAW = os.getenv("DOWNLOAD_RETENTION_HOURS")
-DOWNLOAD_RETENTION_HOURS = _parse_retention_hours(DOWNLOAD_RETENTION_HOURS_RAW, DEFAULT_RETENTION_HOURS)
+DOWNLOAD_RETENTION_HOURS = _parse_retention_hours(
+    DOWNLOAD_RETENTION_HOURS_RAW, DEFAULT_RETENTION_HOURS
+)
 
 # --- HELPERS ---
 
@@ -118,7 +120,12 @@ async def _update_progress(
     lock = await _ensure_progress_lock()
     async with lock:
         if filename not in JOB_PROGRESS:
-            JOB_PROGRESS[filename] = {"total": 0, "current": 0, "status": "init", "start_time": time.time()}
+            JOB_PROGRESS[filename] = {
+                "total": 0,
+                "current": 0,
+                "status": "init",
+                "start_time": time.time(),
+            }
 
         if total_size is not None:
             JOB_PROGRESS[filename]["total"] = total_size
@@ -156,7 +163,9 @@ def _run_in_event_loop(coro: Coroutine[Any, Any, T], async_use_hint: str) -> T:
         future = asyncio.run_coroutine_threadsafe(coro, EVENT_LOOP)
         return future.result()
 
-    raise RuntimeError("Event loop not initialized; progress updates require FastAPI startup to complete.")
+    raise RuntimeError(
+        "Event loop not initialized; progress updates require FastAPI startup to complete."
+    )
 
 
 def update_progress(
@@ -168,7 +177,9 @@ def update_progress(
     """Thread-safe wrapper to update download progress from sync code paths."""
 
     _run_in_event_loop(
-        _update_progress(filename, bytes_added=bytes_added, total_size=total_size, status=status),
+        _update_progress(
+            filename, bytes_added=bytes_added, total_size=total_size, status=status
+        ),
         "update_progress() cannot be used from async contexts; call `_update_progress` directly instead.",
     )
 
@@ -186,32 +197,37 @@ def remove_progress_entry(filename: str) -> None:
 
 
 def get_file_size(url: str, headers: Dict[str, str], proxies: Dict[str, str]) -> int:
+    # TODO: Inner function should be extracted, instead of returning pass they should return {error: with message}, on success: return {size: int}.
     # Method 1: URL 'clen' parameter
     if "clen=" in url:
         try:
+            # TODO: extract in one function and test it
             query = parse_qs(urlparse(url).query)
-            if 'clen' in query:
-                size = int(query['clen'][0])
+            if "clen" in query:
+                size = int(query["clen"][0])
                 return size
         except:
             pass
 
     # Method 2: HEAD Request
     try:
+        # TODO: extract in one function and test it
         head_resp = requests.head(url, headers=headers, proxies=proxies, timeout=10)
         if head_resp.status_code == 200:
-            size = int(head_resp.headers.get('content-length', 0))
-            if size > 0: return size
+            size = int(head_resp.headers.get("content-length", 0))
+            if size > 0:
+                return size
     except:
         pass
 
     # Method 3: Range Probe
     try:
+        # TODO: extract in one function and test it
         h = headers.copy()
-        h['Range'] = 'bytes=0-0'
+        h["Range"] = "bytes=0-0"
         r = requests.get(url, headers=h, proxies=proxies, timeout=10, stream=True)
         if r.status_code in [206, 200]:
-            match = re.search(r'/(\d+)', r.headers.get('Content-Range', ''))
+            match = re.search(r"/(\d+)", r.headers.get("Content-Range", ""))
             if match:
                 return int(match.group(1))
     except:
@@ -219,55 +235,61 @@ def get_file_size(url: str, headers: Dict[str, str], proxies: Dict[str, str]) ->
 
     return 0
 
+
 def get_stream_urls(video_url):
     if not ZYTE_API_KEY:
         logger.error("CRITICAL: ZYTE_API_KEY is missing")
         return None, None, None
 
     zyte_proxy = f"http://{ZYTE_API_KEY.strip()}:@{ZYTE_HOST}:8011/"
-    
+
     ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'nocheckcertificate': True,
-        'proxy': zyte_proxy,
+        "quiet": True,
+        "no_warnings": True,
+        "nocheckcertificate": True,
+        "proxy": zyte_proxy,
     }
 
     try:
         logger.info(f"Phase A: Fetching metadata for {video_url}...")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
-            title = info.get('title', 'video')
-            formats = info.get('formats', [])
-            
+            title = info.get("title", "video")
+            formats = info.get("formats", [])
+
             # Video: Max 1000p (so 720p or 480p, but NOT 1080p)
             # If you want 1080p, change 1000 to 1080.
             video_streams = [
-                f for f in formats 
-                if f.get('vcodec') != 'none' and f.get('acodec') == 'none' 
-                and f.get('protocol', '').startswith('http')
-                and f.get('height', 0) <= 1000
+                f
+                for f in formats
+                if f.get("vcodec") != "none"
+                and f.get("acodec") == "none"
+                and f.get("protocol", "").startswith("http")
+                and f.get("height", 0) <= 1000
             ]
-            video_streams.sort(key=lambda x: x.get('height', 0), reverse=True)
-            
+            video_streams.sort(key=lambda x: x.get("height", 0), reverse=True)
+
             # Audio: Best Available
             audio_streams = [
-                f for f in formats 
-                if f.get('acodec') != 'none' and f.get('vcodec') == 'none'
-                and f.get('protocol', '').startswith('http')
+                f
+                for f in formats
+                if f.get("acodec") != "none"
+                and f.get("vcodec") == "none"
+                and f.get("protocol", "").startswith("http")
             ]
-            audio_streams.sort(key=lambda x: x.get('abr', 0), reverse=True)
+            audio_streams.sort(key=lambda x: x.get("abr", 0), reverse=True)
 
             if video_streams and audio_streams:
-                v_res = video_streams[0].get('height')
+                v_res = video_streams[0].get("height")
                 logger.info(f"Metadata Success: {v_res}p | Title: {title[:30]}...")
-                return video_streams[0]['url'], audio_streams[0]['url'], title
-            
+                return video_streams[0]["url"], audio_streams[0]["url"], title
+
             return None, None, None
 
     except Exception as e:
         logger.error(f"Phase A Failed: {e}")
         return None, None, None
+
 
 def _get_proxy_config() -> Dict[str, str]:
     """Normalize proxy configuration from environment variables."""
@@ -281,7 +303,7 @@ def _get_proxy_config() -> Dict[str, str]:
 
 
 def _get_default_headers() -> Dict[str, str]:
-    return {'User-Agent': DEFAULT_USER_AGENT}
+    return {"User-Agent": DEFAULT_USER_AGENT}
 
 
 def _should_use_single_thread(total_size: int) -> bool:
@@ -313,12 +335,22 @@ def cleanup_old_downloads(retention_hours: int = DOWNLOAD_RETENTION_HOURS) -> No
             )
 
 
-def download_chunk(url: str, headers: Dict[str, str], start: int, end: int, part_filename: str, proxies: Dict[str, str], parent_filename: str) -> bool:
-    headers['Range'] = f"bytes={start}-{end}"
+def download_chunk(
+    url: str,
+    headers: Dict[str, str],
+    start: int,
+    end: int,
+    part_filename: str,
+    proxies: Dict[str, str],
+    parent_filename: str,
+) -> bool:
+    headers["Range"] = f"bytes={start}-{end}"
     try:
-        with requests.get(url, headers=headers, proxies=proxies, stream=True, timeout=(20, 120)) as r:
+        with requests.get(
+            url, headers=headers, proxies=proxies, stream=True, timeout=(20, 120)
+        ) as r:
             r.raise_for_status()
-            with open(part_filename, 'wb') as f:
+            with open(part_filename, "wb") as f:
                 for chunk in r.iter_content(chunk_size=PARALLEL_CHUNK_SIZE):
                     if chunk:
                         f.write(chunk)
@@ -329,7 +361,14 @@ def download_chunk(url: str, headers: Dict[str, str], start: int, end: int, part
         return False
 
 
-def _download_chunks_parallel(url: str, filename: str, total_size: int, num_threads: int, proxies: Dict[str, str], headers: Dict[str, str]) -> Optional[list[str]]:
+def _download_chunks_parallel(
+    url: str,
+    filename: str,
+    total_size: int,
+    num_threads: int,
+    proxies: Dict[str, str],
+    headers: Dict[str, str],
+) -> Optional[list[str]]:
     chunk_size = total_size // num_threads
     path = os.path.join(DOWNLOAD_DIR, filename)
     futures = []
@@ -365,15 +404,17 @@ def _download_chunks_parallel(url: str, filename: str, total_size: int, num_thre
 def _merge_chunks(temp_parts: list[str], target_path: str) -> None:
     update_progress(os.path.basename(target_path), status="merging")
     logger.info(f"Merging chunks for {os.path.basename(target_path)}...")
-    with open(target_path, 'wb') as outfile:
+    with open(target_path, "wb") as outfile:
         for part in temp_parts:
             if os.path.exists(part):
-                with open(part, 'rb') as infile:
+                with open(part, "rb") as infile:
                     shutil.copyfileobj(infile, outfile)
                 os.remove(part)
 
 
-def download_file_parallel(url: str, filename: str, num_threads: int = VIDEO_DOWNLOAD_THREADS) -> DownloadResult:
+def download_file_parallel(
+    url: str, filename: str, num_threads: int = VIDEO_DOWNLOAD_THREADS
+) -> DownloadResult:
     """Download a file using multiple threads, falling back to single-threaded mode."""
 
     path = os.path.join(DOWNLOAD_DIR, filename)
@@ -389,9 +430,13 @@ def download_file_parallel(url: str, filename: str, num_threads: int = VIDEO_DOW
         return download_file_single(url, filename, proxies)
 
     update_progress(filename, total_size=total_size, status="downloading")
-    logger.info(f"PARALLEL START: {filename} ({total_size / (1024*1024):.1f} MB) | {num_threads} Threads")
+    logger.info(
+        f"PARALLEL START: {filename} ({total_size / (1024 * 1024):.1f} MB) | {num_threads} Threads"
+    )
 
-    temp_parts = _download_chunks_parallel(url, filename, total_size, num_threads, proxies, headers)
+    temp_parts = _download_chunks_parallel(
+        url, filename, total_size, num_threads, proxies, headers
+    )
     if temp_parts is None:
         return DownloadResult(success=False, error="Parallel download failed")
 
@@ -401,18 +446,22 @@ def download_file_parallel(url: str, filename: str, num_threads: int = VIDEO_DOW
     return DownloadResult(success=True, path=path)
 
 
-def download_file_single(url: str, filename: str, proxies: Dict[str, str]) -> DownloadResult:
+def download_file_single(
+    url: str, filename: str, proxies: Dict[str, str]
+) -> DownloadResult:
     path = os.path.join(DOWNLOAD_DIR, filename)
     headers = _get_default_headers()
 
     logger.info(f"SINGLE THREAD START: {filename}")
     try:
-        with requests.get(url, headers=headers, proxies=proxies, stream=True, timeout=(20, 120)) as r:
+        with requests.get(
+            url, headers=headers, proxies=proxies, stream=True, timeout=(20, 120)
+        ) as r:
             r.raise_for_status()
-            total_size = int(r.headers.get('content-length', 0))
+            total_size = int(r.headers.get("content-length", 0))
             update_progress(filename, total_size=total_size, status="downloading")
 
-            with open(path, 'wb') as f:
+            with open(path, "wb") as f:
                 for chunk in r.iter_content(chunk_size=SINGLE_THREAD_CHUNK_SIZE):
                     f.write(chunk)
                     update_progress(filename, bytes_added=len(chunk))
@@ -434,13 +483,16 @@ async def on_startup() -> None:
     EVENT_LOOP = asyncio.get_running_loop()
     await asyncio.to_thread(cleanup_old_downloads)
 
+
 def process_video_task(video_url: str):
     logger.info(f"Job Started: {video_url}")
     try:
         vid_url, aud_url, title = get_stream_urls(video_url)
 
         if vid_url and aud_url:
-            safe_title = "".join([c for c in title if c.isalpha() or c.isdigit() or c==' ']).rstrip()
+            safe_title = "".join(
+                [c for c in title if c.isalpha() or c.isdigit() or c == " "]
+            ).rstrip()
 
             # CONCURRENT DOWNLOADS
             # We use a ThreadPool to run both downloads at the exact same time
@@ -476,16 +528,28 @@ def process_video_task(video_url: str):
     finally:
         cleanup_old_downloads()
 
+
 # --- ROUTES ---
+
 
 @app.get("/")
 def home():
-    return {"status": "Running on VPS", "endpoints": {"start": "/scrape?url=...", "progress": "/progress", "logs": "/logs"}}
+    return {
+        "status": "Running on VPS",
+        "endpoints": {
+            "start": "/scrape?url=...",
+            "progress": "/progress",
+            "logs": "/logs",
+            "files": "/list",
+        },
+    }
+
 
 @app.get("/scrape")
 def scrape(url: str, background_tasks: BackgroundTasks):
     background_tasks.add_task(process_video_task, url)
     return {"message": "Download started", "url": url, "track": "/progress"}
+
 
 @app.get("/progress")
 async def get_progress():
@@ -494,16 +558,17 @@ async def get_progress():
     async with lock:
         for filename, data in JOB_PROGRESS.items():
             pct = 0
-            if data['total'] > 0:
-                pct = (data['current'] / data['total']) * 100
+            if data["total"] > 0:
+                pct = (data["current"] / data["total"]) * 100
 
             results[filename] = {
-                "status": data['status'],
+                "status": data["status"],
                 "percent": round(pct, 1),
-                "downloaded_mb": round(data['current'] / (1024*1024), 1),
-                "total_mb": round(data['total'] / (1024*1024), 1)
+                "downloaded_mb": round(data["current"] / (1024 * 1024), 1),
+                "total_mb": round(data["total"] / (1024 * 1024), 1),
             }
     return results
+
 
 @app.get("/logs")
 def view_logs():
@@ -511,3 +576,10 @@ def view_logs():
         with open(LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
             return {"recent_logs": f.readlines()[-50:][::-1]}
     return {"error": "Log file empty or missing"}
+
+
+@app.get("/list")
+def list_files():
+    files = os.listdir(DOWNLOAD_DIR)
+    data = [{"filename": f, "url": f"/files/{f}"} for f in files]
+    return {"files": data}
