@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: slides-extractor
-        image: registry.localhost:5000/slides-extractor:v2.0.0
+        image: registry.localhost:5000/slides-extractor:v3.0.0
         ports:
         - containerPort: 8000
         env:
