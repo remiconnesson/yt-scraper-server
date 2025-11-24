@@ -144,7 +144,10 @@ class TextDetector:
             cx = 0.5 * (x1 + x2)
             cy = 0.5 * (y1 + y2)
 
-            if margin_min_x <= cx <= margin_max_x and margin_min_y <= cy <= margin_max_y:
+            if (
+                margin_min_x <= cx <= margin_max_x
+                and margin_min_y <= cy <= margin_max_y
+            ):
                 center_total_area += area
                 center_largest_area = max(center_largest_area, area)
             detected_boxes.append((x1, y1, x2, y2))

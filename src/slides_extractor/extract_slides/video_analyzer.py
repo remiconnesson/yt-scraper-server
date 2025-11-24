@@ -71,7 +71,7 @@ class Segment:
         return len(self.frames)
 
 
-CENTER_CROP_RATIO = 0.8
+CENTER_CROP_RATIO = 0.6
 
 
 def _compute_frame_hash(args: tuple[np.ndarray, int, int]) -> list[imagehash.ImageHash]:

@@ -111,13 +111,15 @@ def test_compute_frame_hash_invalid_grid() -> None:
 
     # Grid larger than frame should raise ValueError
     with pytest.raises(
-        ValueError, match="Grid dimensions .* cannot exceed center-cropped frame dimensions"
+        ValueError,
+        match="Grid dimensions .* cannot exceed center-cropped frame dimensions",
     ):
         _compute_frame_hash((test_image, 200, 200))
 
     # Grid with one dimension larger should also raise
     with pytest.raises(
-        ValueError, match="Grid dimensions .* cannot exceed center-cropped frame dimensions"
+        ValueError,
+        match="Grid dimensions .* cannot exceed center-cropped frame dimensions",
     ):
         _compute_frame_hash((test_image, 150, 2))
 

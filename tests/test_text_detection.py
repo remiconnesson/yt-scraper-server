@@ -80,7 +80,9 @@ def test_text_detector_ignores_corner_logo(monkeypatch: pytest.MonkeyPatch) -> N
     assert boxes == [(600, 10, 620, 30)]
 
 
-def test_text_detector_only_counts_central_boxes(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_text_detector_only_counts_central_boxes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     fake_net = _FakeNet(0.8)
     monkeypatch.setattr(cv2.dnn, "readNet", lambda model_path: fake_net)
 

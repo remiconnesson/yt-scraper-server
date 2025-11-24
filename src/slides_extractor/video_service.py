@@ -488,9 +488,13 @@ async def _upload_segments(
 
         base_meta = base_metadata[idx - 1]
         if "text_total_area_ratio" in base_meta:
-            metadata["text_total_area_ratio"] = f"{base_meta['text_total_area_ratio']:.6f}"
+            metadata["text_total_area_ratio"] = (
+                f"{base_meta['text_total_area_ratio']:.6f}"
+            )
         if "text_largest_area_ratio" in base_meta:
-            metadata["text_largest_area_ratio"] = f"{base_meta['text_largest_area_ratio']:.6f}"
+            metadata["text_largest_area_ratio"] = (
+                f"{base_meta['text_largest_area_ratio']:.6f}"
+            )
 
         if local_output_dir:
             full_dir = os.path.join(

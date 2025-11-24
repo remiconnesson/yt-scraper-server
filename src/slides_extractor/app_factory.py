@@ -318,8 +318,6 @@ async def stream_job(video_id: str) -> StreamingResponse:
     return StreamingResponse(_event_stream(), media_type="text/event-stream")
 
 
-
-
 @app.get("/logs", dependencies=AUTH_DEPENDENCIES)
 def view_logs():
     if os.path.exists(LOG_FILE):
