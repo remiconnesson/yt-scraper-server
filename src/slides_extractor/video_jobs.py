@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from typing import Optional
 
 from slides_extractor.downloader import (
     VIDEO_DOWNLOAD_THREADS,
@@ -23,7 +24,9 @@ def _safe_title(title: str) -> str:
     ).rstrip()
 
 
-def process_video_task(video_url: str, video_id: str, job_id: str) -> None:
+def process_video_task(
+    video_url: str, video_id: str, job_id: str, local_output_dir: Optional[str] = None
+) -> None:
     asyncio.run(
         update_job_status(
             job_id,
@@ -62,6 +65,7 @@ def process_video_task(video_url: str, video_id: str, job_id: str) -> None:
                         video_path=video_path,
                         video_id=video_id,
                         job_id=job_id,
+                        local_output_dir=local_output_dir,
                     )
                 )
             except Exception as exc:  # noqa: BLE001

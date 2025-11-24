@@ -9,6 +9,7 @@ import pytest
 from slides_extractor.video_service import (
     _detect_static_segments,
     _upload_segments,
+    _build_segments_manifest,
     JobStatus,
 )
 from slides_extractor.extract_slides.video_analyzer import Segment
@@ -48,7 +49,7 @@ class TestDetectStaticSegments:
         mock_detector.analyze.return_value = mock_streamer.stream()
         mock_detector_class.return_value = mock_detector
 
-        segments, total_frames = await _detect_static_segments(
+        segments, all_segments, total_frames = await _detect_static_segments(
             "/tmp/video.mp4", "job-123"
         )
 
@@ -143,6 +144,15 @@ class TestUploadSegments:
             metadata[0]["image_url"]
             == "https://s3-endpoint/bucket/video/abc/images/segment_001.png"
         )
+        assert (
+            metadata[0]["s3_key"]
+            == "video/video-abc/static_frames/static_frame_000001.png"
+        )
+        assert metadata[0]["s3_bucket"] is not None
+        assert (
+            metadata[0]["s3_uri"]
+            == f"s3://{metadata[0]['s3_bucket']}/video/video-abc/static_frames/static_frame_000001.png"
+        )
         assert mock_upload.call_count == 2
         assert mock_imencode.call_count == 2
 
@@ -199,7 +209,9 @@ class TestUploadSegments:
 
         # Verify blob key format
         call_args = mock_upload.call_args
-        assert call_args[0][1] == "video/my-video-id/images/segment_001.png"
+        assert (
+            call_args[0][1] == "video/my-video-id/static_frames/static_frame_000001.png"
+        )
 
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.cv2.imencode")
@@ -268,22 +280,29 @@ class TestExtractAndProcessFramesIntegration:
         asyncio.run(_clear())
 
     @pytest.mark.asyncio
+    @patch("slides_extractor.video_service.upload_to_s3")
     @patch("slides_extractor.video_service._upload_segments")
     @patch("slides_extractor.video_service._detect_static_segments")
-    async def test_full_pipeline_success(self, mock_detect, mock_upload):
+    async def test_full_pipeline_success(
+        self, mock_detect, mock_upload, mock_upload_s3
+    ):
         """Test the full orchestration of detection and upload phases."""
         # Mock each phase
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
         segments = [Segment(type="static", representative_frame=frame, frames=[1, 2])]
-        mock_detect.return_value = (segments, 100)
+        mock_detect.return_value = (segments, segments, 100)
 
         metadata = [
             {
                 "segment_id": 1,
                 "image_url": "https://s3-endpoint/bucket/url",
+                "s3_key": "key",
+                "s3_bucket": "bucket",
+                "s3_uri": "s3://bucket/key",
             }
         ]
         mock_upload.return_value = metadata
+        mock_upload_s3.return_value = "https://s3-endpoint/bucket/manifest.json"
 
         # Import here to avoid circular dependency issues
         from slides_extractor.video_service import extract_and_process_frames
@@ -295,6 +314,8 @@ class TestExtractAndProcessFramesIntegration:
         assert result == metadata
         mock_detect.assert_called_once_with("/tmp/video.mp4", "job-123")
         mock_upload.assert_called_once_with(segments, "video-id", "job-123")
+        # Verify manifest upload
+        assert mock_upload_s3.called
 
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service._detect_static_segments")
@@ -306,7 +327,7 @@ class TestExtractAndProcessFramesIntegration:
             JOBS_LOCK,
         )
 
-        mock_detect.return_value = ([], 100)
+        mock_detect.return_value = ([], [], 100)
 
         result = await extract_and_process_frames(
             "/tmp/video.mp4", "video-id", "job-123"
@@ -318,3 +339,61 @@ class TestExtractAndProcessFramesIntegration:
         async with JOBS_LOCK:
             assert JOBS["job-123"]["status"] == JobStatus.completed
             assert "No static segments" in JOBS["job-123"]["message"]
+
+
+class TestBuildSegmentsManifest:
+    """Test manifest construction."""
+
+    def test_manifest_structure_includes_s3_info(self):
+        video_id = "test-video"
+
+        # Create segments
+        segments = [
+            Segment(
+                type="moving",
+                start_time=0.0,
+                end_time=1.0,
+                representative_frame=None,
+                frames=[],
+            ),
+            Segment(
+                type="static",
+                start_time=1.0,
+                end_time=2.0,
+                representative_frame=None,
+                frames=[],
+            ),
+        ]
+
+        # Create metadata matching the static segment
+        static_metadata = [
+            {
+                "frame_id": "frame_001.png",
+                "image_url": "https://example.com/img.png",
+                "s3_key": "video/test-video/static_frames/frame_001.png",
+                "s3_bucket": "my-bucket",
+                "s3_uri": "s3://my-bucket/video/test-video/static_frames/frame_001.png",
+            }
+        ]
+
+        manifest = _build_segments_manifest(video_id, segments, static_metadata)
+
+        # Verify structure
+        assert video_id in manifest
+        manifest_segments = manifest[video_id]["segments"]
+        assert len(manifest_segments) == 2
+
+        # Check moving segment
+        assert manifest_segments[0]["kind"] == "moving"
+
+        # Check static segment
+        static_seg = manifest_segments[1]
+        assert static_seg["kind"] == "static"
+        assert static_seg["frame_id"] == "frame_001.png"
+        assert static_seg["url"] == "https://example.com/img.png"
+        assert static_seg["s3_key"] == "video/test-video/static_frames/frame_001.png"
+        assert static_seg["s3_bucket"] == "my-bucket"
+        assert (
+            static_seg["s3_uri"]
+            == "s3://my-bucket/video/test-video/static_frames/frame_001.png"
+        )
