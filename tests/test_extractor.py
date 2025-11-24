@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from extract_slides.extractor import extract_slides
+from slides_extractor.extract_slides.extractor import extract_slides
 
 
 def test_extract_slides_creates_output_dir():
@@ -55,7 +55,9 @@ def test_extract_slides_verbose_mode():
         input_file.write_text("dummy content")
 
         # Should not raise any errors
-        result = extract_slides(str(input_file), str(Path(tmpdir) / "output"), "png", verbose=True)
+        result = extract_slides(
+            str(input_file), str(Path(tmpdir) / "output"), "png", verbose=True
+        )
         assert result["count"] >= 0
 
 

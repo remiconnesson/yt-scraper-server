@@ -1,7 +1,7 @@
 import requests
 from requests import RequestException
 
-from main import get_file_size
+from slides_extractor.downloader import get_file_size
 
 
 class DummyResponse:

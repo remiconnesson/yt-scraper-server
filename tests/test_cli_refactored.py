@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from extract_slides.cli import VideoAnalysisConfig, main, video_main
+from slides_extractor.extract_slides.cli import VideoAnalysisConfig, main, video_main
 
 
 class TestVideoAnalysisConfig:
@@ -106,13 +106,17 @@ class TestCLIVideoAnalysis:
                 main,
                 [
                     "analyze-video",
-                    "--input", "test.mp4",
-                    "--output-dir", "output",
+                    "--input",
+                    "test.mp4",
+                    "--output-dir",
+                    "output",
                 ],
             )
 
             # Should fail because it's not a real video, but command should be recognized
-            assert "analyze-video" in str(result.output).lower() or result.exit_code != 0
+            assert (
+                "analyze-video" in str(result.output).lower() or result.exit_code != 0
+            )
 
     def test_analyze_video_command_with_custom_grid(self):
         """Test analyze-video command with custom grid settings."""
@@ -124,10 +128,14 @@ class TestCLIVideoAnalysis:
                 main,
                 [
                     "analyze-video",
-                    "--input", "test.mp4",
-                    "--output-dir", "output",
-                    "--grid-cols", "8",
-                    "--grid-rows", "6",
+                    "--input",
+                    "test.mp4",
+                    "--output-dir",
+                    "output",
+                    "--grid-cols",
+                    "8",
+                    "--grid-rows",
+                    "6",
                 ],
             )
 
@@ -143,8 +151,10 @@ class TestCLIVideoAnalysis:
             result = runner.invoke(
                 video_main,
                 [
-                    "--input", "test.mp4",
-                    "--output-dir", "output",
+                    "--input",
+                    "test.mp4",
+                    "--output-dir",
+                    "output",
                 ],
             )
 
@@ -161,9 +171,12 @@ class TestCLIVideoAnalysis:
                 main,
                 [
                     "analyze-video",
-                    "--input", "test.mp4",
-                    "--output-dir", "output",
-                    "--grid-cols", "0",
+                    "--input",
+                    "test.mp4",
+                    "--output-dir",
+                    "output",
+                    "--grid-cols",
+                    "0",
                 ],
             )
 
@@ -180,9 +193,12 @@ class TestCLIVideoAnalysis:
                 main,
                 [
                     "analyze-video",
-                    "--input", "test.mp4",
-                    "--output-dir", "output",
-                    "--min-static-cell-ratio", "1.5",
+                    "--input",
+                    "test.mp4",
+                    "--output-dir",
+                    "output",
+                    "--min-static-cell-ratio",
+                    "1.5",
                 ],
             )
 
@@ -199,9 +215,12 @@ class TestCLIVideoAnalysis:
                 main,
                 [
                     "analyze-video",
-                    "--input", "test.mp4",
-                    "--output-dir", "output",
-                    "--min-static-frames", "0",
+                    "--input",
+                    "test.mp4",
+                    "--output-dir",
+                    "output",
+                    "--min-static-frames",
+                    "0",
                 ],
             )
 
@@ -218,8 +237,10 @@ class TestCLIVideoAnalysis:
                 main,
                 [
                     "analyze-video",
-                    "--input", "test.mp4",
-                    "--output-dir", "output",
+                    "--input",
+                    "test.mp4",
+                    "--output-dir",
+                    "output",
                     "--verbose",
                 ],
             )
@@ -243,13 +264,20 @@ class TestCLIBackwardCompatibility:
                 main,
                 [
                     "analyze-video",
-                    "--input", "test.mp4",
-                    "--output-dir", "output",
-                    "--grid-cols", "4",
-                    "--grid-rows", "4",
-                    "--cell-hash-threshold", "5",
-                    "--min-static-cell-ratio", "0.8",
-                    "--min-static-frames", "3",
+                    "--input",
+                    "test.mp4",
+                    "--output-dir",
+                    "output",
+                    "--grid-cols",
+                    "4",
+                    "--grid-rows",
+                    "4",
+                    "--cell-hash-threshold",
+                    "5",
+                    "--min-static-cell-ratio",
+                    "0.8",
+                    "--min-static-frames",
+                    "3",
                     "--verbose",
                 ],
             )
@@ -268,8 +296,10 @@ class TestCLIBackwardCompatibility:
             result = runner.invoke(
                 video_main,
                 [
-                    "--input", "test.mp4",
-                    "--output-dir", "output",
+                    "--input",
+                    "test.mp4",
+                    "--output-dir",
+                    "output",
                     "--verbose",
                 ],
             )
@@ -303,7 +333,9 @@ class TestCLIErrorMessages:
             )
 
             assert result.exit_code != 0
-            assert "--output-dir" in result.output or "required" in result.output.lower()
+            assert (
+                "--output-dir" in result.output or "required" in result.output.lower()
+            )
 
     def test_nonexistent_input_file(self):
         """Test error when input file doesn't exist."""
@@ -312,8 +344,10 @@ class TestCLIErrorMessages:
             main,
             [
                 "analyze-video",
-                "--input", "nonexistent.mp4",
-                "--output-dir", "output",
+                "--input",
+                "nonexistent.mp4",
+                "--output-dir",
+                "output",
             ],
         )
 

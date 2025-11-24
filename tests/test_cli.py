@@ -2,7 +2,7 @@
 
 from click.testing import CliRunner
 
-from extract_slides.cli import main
+from slides_extractor.extract_slides.cli import main
 
 
 def test_main_help():

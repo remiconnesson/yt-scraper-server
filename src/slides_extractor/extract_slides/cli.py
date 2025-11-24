@@ -5,10 +5,13 @@ from typing import Any, Callable, TypeVar
 
 import click
 
-from extract_slides import __version__
-from extract_slides.extractor import extract_slides
-from extract_slides.video_analyzer import AnalysisConfig, analyze_video
-from extract_slides.video_output import generate_summary, save_analysis_results
+from slides_extractor.extract_slides import __version__
+from slides_extractor.extract_slides.extractor import extract_slides
+from slides_extractor.extract_slides.video_analyzer import AnalysisConfig, analyze_video
+from slides_extractor.extract_slides.video_output import (
+    generate_summary,
+    save_analysis_results,
+)
 
 
 T = TypeVar("T", bound=Callable[..., Any])

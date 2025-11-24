@@ -1,7 +1,7 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
-from downloader import (
+from slides_extractor.downloader import (
     AUDIO_DOWNLOAD_THREADS,
     VIDEO_DOWNLOAD_THREADS,
     cleanup_old_downloads,
@@ -18,7 +18,9 @@ def process_video_task(video_url: str):
         vid_url, aud_url, title = get_stream_urls(video_url)
 
         if vid_url and aud_url:
-            safe_title = "".join([c for c in title if c.isalpha() or c.isdigit() or c == " "]).rstrip()
+            safe_title = "".join(
+                [c for c in title if c.isalpha() or c.isdigit() or c == " "]
+            ).rstrip()
 
             with ThreadPoolExecutor(max_workers=2) as executor:
                 video_future = executor.submit(
@@ -47,4 +49,3 @@ def process_video_task(video_url: str):
             logger.error("Job Failed during Phase A")
     finally:
         cleanup_old_downloads()
-

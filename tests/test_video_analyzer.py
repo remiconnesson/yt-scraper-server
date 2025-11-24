@@ -6,15 +6,18 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from extract_slides.cli import main, video_main
-from extract_slides.video_analyzer import (
+from slides_extractor.extract_slides.cli import main, video_main
+from slides_extractor.extract_slides.video_analyzer import (
     FrameData,
     FrameStreamer,
     Segment,
     SegmentDetector,
     _compute_frame_hash,
 )
-from extract_slides.video_output import format_timestamp, format_timestamp_for_filename
+from slides_extractor.extract_slides.video_output import (
+    format_timestamp,
+    format_timestamp_for_filename,
+)
 
 
 def test_format_timestamp() -> None:
@@ -51,17 +54,23 @@ def test_compute_frame_hash_invalid_grid() -> None:
     test_image = rng.integers(0, 255, (100, 100, 3), dtype=np.uint8)
 
     # Grid larger than frame should raise ValueError
-    with pytest.raises(ValueError, match="Grid dimensions .* cannot exceed frame dimensions"):
+    with pytest.raises(
+        ValueError, match="Grid dimensions .* cannot exceed frame dimensions"
+    ):
         _compute_frame_hash((test_image, 200, 200))
 
     # Grid with one dimension larger should also raise
-    with pytest.raises(ValueError, match="Grid dimensions .* cannot exceed frame dimensions"):
+    with pytest.raises(
+        ValueError, match="Grid dimensions .* cannot exceed frame dimensions"
+    ):
         _compute_frame_hash((test_image, 150, 2))
 
 
 def test_segment_properties() -> None:
     """Test Segment dataclass properties."""
-    segment = Segment(type="static", start_time=1.0, end_time=5.0, frames=[0, 1, 2, 3, 4])
+    segment = Segment(
+        type="static", start_time=1.0, end_time=5.0, frames=[0, 1, 2, 3, 4]
+    )
 
     assert segment.duration == 4.0
     assert segment.frame_count == 5
@@ -78,7 +87,8 @@ def test_segment_detector_single_static() -> None:
     hashes = _compute_frame_hash((test_image, 2, 2))
 
     frames = [
-        FrameData(index=i, timestamp=float(i), image=test_image, hashes=hashes) for i in range(5)
+        FrameData(index=i, timestamp=float(i), image=test_image, hashes=hashes)
+        for i in range(5)
     ]
 
     # Process frames
@@ -108,7 +118,9 @@ def test_segment_detector_all_different() -> None:
             index=i,
             timestamp=float(i),
             image=rng.integers(0, 255, (100, 100, 3), dtype=np.uint8),
-            hashes=_compute_frame_hash((rng.integers(0, 255, (100, 100, 3), dtype=np.uint8), 2, 2)),
+            hashes=_compute_frame_hash(
+                (rng.integers(0, 255, (100, 100, 3), dtype=np.uint8), 2, 2)
+            ),
         )
         for i in range(5)
     ]
@@ -145,18 +157,25 @@ def test_segment_detector_mixed() -> None:
     frames = []
     # First 3 frames: static
     for i in range(3):
-        frames.append(FrameData(index=i, timestamp=float(i), image=static_image1, hashes=hashes1))
+        frames.append(
+            FrameData(index=i, timestamp=float(i), image=static_image1, hashes=hashes1)
+        )
     # Next 3 frames: different (moving)
     for i in range(3, 6):
         img = rng.integers(0, 255, (100, 100, 3), dtype=np.uint8)
         frames.append(
             FrameData(
-                index=i, timestamp=float(i), image=img, hashes=_compute_frame_hash((img, 2, 2))
+                index=i,
+                timestamp=float(i),
+                image=img,
+                hashes=_compute_frame_hash((img, 2, 2)),
             )
         )
     # Last 3 frames: static again
     for i in range(6, 9):
-        frames.append(FrameData(index=i, timestamp=float(i), image=static_image2, hashes=hashes2))
+        frames.append(
+            FrameData(index=i, timestamp=float(i), image=static_image2, hashes=hashes2)
+        )
 
     # Process frames
     def frame_stream():  # type: ignore[no-untyped-def]
@@ -175,15 +194,21 @@ def test_segment_detector_mixed() -> None:
     all_frames = []
     for seg in detector.segments:
         all_frames.extend(seg.frames)
-    assert len(all_frames) == len(set(all_frames)), "Frame indices should not be duplicated"
+    assert len(all_frames) == len(set(all_frames)), (
+        "Frame indices should not be duplicated"
+    )
 
     # Verify first static segment contains expected frames
     first_static = static_segments[0]
-    assert first_static.frames == [0, 1, 2], f"Expected [0, 1, 2], got {first_static.frames}"
+    assert first_static.frames == [0, 1, 2], (
+        f"Expected [0, 1, 2], got {first_static.frames}"
+    )
 
     # Verify last static segment contains expected frames
     last_static = static_segments[-1]
-    assert last_static.frames == [6, 7, 8], f"Expected [6, 7, 8], got {last_static.frames}"
+    assert last_static.frames == [6, 7, 8], (
+        f"Expected [6, 7, 8], got {last_static.frames}"
+    )
 
 
 def test_frame_streamer_file_not_found() -> None:
@@ -254,7 +279,14 @@ def test_video_main_validation_min_static_frames() -> None:
 
         result = runner.invoke(
             video_main,
-            ["--input", "test.mp4", "--output-dir", "output", "--min-static-frames", "0"],
+            [
+                "--input",
+                "test.mp4",
+                "--output-dir",
+                "output",
+                "--min-static-frames",
+                "0",
+            ],
         )
         assert result.exit_code == 1
         assert "min-static-frames must be at least 1" in result.output

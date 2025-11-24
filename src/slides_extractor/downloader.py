@@ -10,8 +10,8 @@ from urllib.parse import parse_qs, urlparse
 import requests
 import yt_dlp
 
-from job_tracker import remove_progress_entry, update_progress
-from settings import (
+from slides_extractor.job_tracker import remove_progress_entry, update_progress
+from slides_extractor.settings import (
     AUDIO_DOWNLOAD_THREADS,
     DATACENTER_PROXY,
     DEFAULT_USER_AGENT,
@@ -33,7 +33,9 @@ logger = logging.getLogger("scraper")
 class DownloadResult:
     """Outcome of a download operation."""
 
-    def __init__(self, success: bool, error: Optional[str] = None, path: Optional[str] = None):
+    def __init__(
+        self, success: bool, error: Optional[str] = None, path: Optional[str] = None
+    ):
         self.success = success
         self.error = error
         self.path = path
@@ -68,7 +70,9 @@ def get_file_size(url: str, headers: Dict[str, str], proxies: Dict[str, str]) ->
         try:
             size = int(head_resp.headers.get("content-length", "0"))
         except (TypeError, ValueError):
-            logger.debug("Invalid content-length header for %s: %s", url, head_resp.headers)
+            logger.debug(
+                "Invalid content-length header for %s: %s", url, head_resp.headers
+            )
             return None
 
         return size if size > 0 else None
@@ -78,7 +82,9 @@ def get_file_size(url: str, headers: Dict[str, str], proxies: Dict[str, str]) ->
         ranged_headers["Range"] = "bytes=0-0"
 
         try:
-            response = requests.get(url, headers=ranged_headers, proxies=proxies, timeout=10, stream=True)
+            response = requests.get(
+                url, headers=ranged_headers, proxies=proxies, timeout=10, stream=True
+            )
         except requests.RequestException as exc:
             logger.debug("Range probe failed for %s: %s", url, exc)
             return None
@@ -93,7 +99,9 @@ def get_file_size(url: str, headers: Dict[str, str], proxies: Dict[str, str]) ->
         try:
             size = int(match.group(1))
         except ValueError:
-            logger.debug("Unable to parse Content-Range header for %s: %s", url, response.headers)
+            logger.debug(
+                "Unable to parse Content-Range header for %s: %s", url, response.headers
+            )
             return None
 
         return size if size > 0 else None
@@ -207,7 +215,9 @@ def download_chunk(
 ) -> bool:
     headers["Range"] = f"bytes={start}-{end}"
     try:
-        with requests.get(url, headers=headers, proxies=proxies, stream=True, timeout=(20, 120)) as r:
+        with requests.get(
+            url, headers=headers, proxies=proxies, stream=True, timeout=(20, 120)
+        ) as r:
             r.raise_for_status()
             with open(part_filename, "wb") as f:
                 for chunk in r.iter_content(chunk_size=PARALLEL_CHUNK_SIZE):
@@ -271,7 +281,9 @@ def _merge_chunks(temp_parts: list[str], target_path: str) -> None:
                 os.remove(part)
 
 
-def download_file_parallel(url: str, filename: str, num_threads: int = VIDEO_DOWNLOAD_THREADS) -> DownloadResult:
+def download_file_parallel(
+    url: str, filename: str, num_threads: int = VIDEO_DOWNLOAD_THREADS
+) -> DownloadResult:
     """Download a file using multiple threads, falling back to single-threaded mode."""
 
     path = os.path.join(DOWNLOAD_DIR, filename)
@@ -291,7 +303,9 @@ def download_file_parallel(url: str, filename: str, num_threads: int = VIDEO_DOW
         f"PARALLEL START: {filename} ({total_size / (1024 * 1024):.1f} MB) | {num_threads} Threads"
     )
 
-    temp_parts = _download_chunks_parallel(url, filename, total_size, num_threads, proxies, headers)
+    temp_parts = _download_chunks_parallel(
+        url, filename, total_size, num_threads, proxies, headers
+    )
     if temp_parts is None:
         return DownloadResult(success=False, error="Parallel download failed")
 
@@ -301,13 +315,17 @@ def download_file_parallel(url: str, filename: str, num_threads: int = VIDEO_DOW
     return DownloadResult(success=True, path=path)
 
 
-def download_file_single(url: str, filename: str, proxies: Dict[str, str]) -> DownloadResult:
+def download_file_single(
+    url: str, filename: str, proxies: Dict[str, str]
+) -> DownloadResult:
     path = os.path.join(DOWNLOAD_DIR, filename)
     headers = _get_default_headers()
 
     logger.info(f"SINGLE THREAD START: {filename}")
     try:
-        with requests.get(url, headers=headers, proxies=proxies, stream=True, timeout=(20, 120)) as r:
+        with requests.get(
+            url, headers=headers, proxies=proxies, stream=True, timeout=(20, 120)
+        ) as r:
             r.raise_for_status()
             total_size = int(r.headers.get("content-length", 0))
             update_progress(filename, total_size=total_size, status="downloading")
@@ -324,4 +342,3 @@ def download_file_single(url: str, filename: str, proxies: Dict[str, str]) -> Do
         logger.error(f"Single Download Failed: {e}")
         update_progress(filename, status="failed")
         return DownloadResult(success=False, error=str(e))
-

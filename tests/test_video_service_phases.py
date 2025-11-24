@@ -6,13 +6,13 @@ from unittest.mock import AsyncMock, Mock, patch
 import numpy as np
 import pytest
 
-from video_service import (
+from slides_extractor.video_service import (
     _compress_segments,
     _detect_static_segments,
     _upload_segments,
     JobStatus,
 )
-from extract_slides.video_analyzer import Segment
+from slides_extractor.extract_slides.video_analyzer import Segment
 
 
 class TestDetectStaticSegments:
@@ -21,7 +21,7 @@ class TestDetectStaticSegments:
     @pytest.fixture(autouse=True)
     def cleanup_jobs(self):
         """Clear JOBS before each test."""
-        from video_service import JOBS, JOBS_LOCK
+        from slides_extractor.video_service import JOBS, JOBS_LOCK
 
         async def _clear() -> None:
             async with JOBS_LOCK:
@@ -34,15 +34,19 @@ class TestDetectStaticSegments:
     @pytest.mark.asyncio
     @patch("video_service.FrameStreamer")
     @patch("video_service.SegmentDetector")
-    async def test_detect_static_segments_success(self, mock_detector_class, mock_streamer_class):
+    async def test_detect_static_segments_success(
+        self, mock_detector_class, mock_streamer_class
+    ):
         """Test successful segment detection."""
         # Mock the streamer to yield fake progress
         mock_streamer = Mock()
-        mock_streamer.stream.return_value = iter([
-            (1, 0, 10),   # segment_count, frame_idx, total_frames
-            (1, 5, 10),
-            (2, 9, 10),
-        ])
+        mock_streamer.stream.return_value = iter(
+            [
+                (1, 0, 10),  # segment_count, frame_idx, total_frames
+                (1, 5, 10),
+                (2, 9, 10),
+            ]
+        )
         mock_streamer_class.return_value = mock_streamer
 
         # Mock the detector with some segments
@@ -56,7 +60,9 @@ class TestDetectStaticSegments:
         mock_detector.analyze.return_value = mock_streamer.stream()
         mock_detector_class.return_value = mock_detector
 
-        segments, total_frames = await _detect_static_segments("/tmp/video.mp4", "job-123")
+        segments, total_frames = await _detect_static_segments(
+            "/tmp/video.mp4", "job-123"
+        )
 
         assert len(segments) == 2  # Only static segments with frames
         assert total_frames == 10
@@ -66,7 +72,9 @@ class TestDetectStaticSegments:
     @pytest.mark.asyncio
     @patch("video_service.FrameStreamer")
     @patch("video_service.SegmentDetector")
-    async def test_detect_static_segments_no_segments(self, mock_detector_class, mock_streamer_class):
+    async def test_detect_static_segments_no_segments(
+        self, mock_detector_class, mock_streamer_class
+    ):
         """Test when no static segments are found."""
         mock_streamer = Mock()
         mock_streamer.stream.return_value = iter([(0, 0, 10)])
@@ -79,7 +87,9 @@ class TestDetectStaticSegments:
         mock_detector.analyze.return_value = mock_streamer.stream()
         mock_detector_class.return_value = mock_detector
 
-        segments, total_frames = await _detect_static_segments("/tmp/video.mp4", "job-123")
+        segments, total_frames = await _detect_static_segments(
+            "/tmp/video.mp4", "job-123"
+        )
 
         assert len(segments) == 0
         assert total_frames == 10
@@ -87,16 +97,20 @@ class TestDetectStaticSegments:
     @pytest.mark.asyncio
     @patch("video_service.FrameStreamer")
     @patch("video_service.SegmentDetector")
-    async def test_detect_static_segments_updates_progress(self, mock_detector_class, mock_streamer_class):
+    async def test_detect_static_segments_updates_progress(
+        self, mock_detector_class, mock_streamer_class
+    ):
         """Test that progress updates are sent."""
-        from video_service import JOBS, JOBS_LOCK
+        from slides_extractor.video_service import JOBS, JOBS_LOCK
 
         mock_streamer = Mock()
-        mock_streamer.stream.return_value = iter([
-            (1, 0, 100),
-            (1, 50, 100),
-            (1, 99, 100),
-        ])
+        mock_streamer.stream.return_value = iter(
+            [
+                (1, 0, 100),
+                (1, 50, 100),
+                (1, 99, 100),
+            ]
+        )
         mock_streamer_class.return_value = mock_streamer
 
         mock_detector = Mock()
@@ -118,7 +132,7 @@ class TestCompressSegments:
     @pytest.fixture(autouse=True)
     def cleanup_jobs(self):
         """Clear JOBS before each test."""
-        from video_service import JOBS, JOBS_LOCK
+        from slides_extractor.video_service import JOBS, JOBS_LOCK
 
         async def _clear() -> None:
             async with JOBS_LOCK:
@@ -185,7 +199,7 @@ class TestCompressSegments:
     @patch("video_service.compress_image")
     async def test_compress_segments_updates_progress(self, mock_compress):
         """Test that progress updates during compression."""
-        from video_service import JOBS, JOBS_LOCK
+        from slides_extractor.video_service import JOBS, JOBS_LOCK
 
         mock_compress.return_value = (b"data", {"quality": 90})
 
@@ -207,7 +221,7 @@ class TestUploadSegments:
     @pytest.fixture(autouse=True)
     def cleanup_jobs(self):
         """Clear JOBS before each test."""
-        from video_service import JOBS, JOBS_LOCK
+        from slides_extractor.video_service import JOBS, JOBS_LOCK
 
         async def _clear() -> None:
             async with JOBS_LOCK:
@@ -221,7 +235,9 @@ class TestUploadSegments:
     @patch("video_service.upload_to_vercel_blob")
     async def test_upload_segments_success(self, mock_upload):
         """Test successful upload of compressed segments."""
-        mock_upload.return_value = "https://blob.vercel-storage.com/video/abc/images/segment_001.webp"
+        mock_upload.return_value = (
+            "https://blob.vercel-storage.com/video/abc/images/segment_001.webp"
+        )
 
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
         compressed_segments = [
@@ -257,7 +273,10 @@ class TestUploadSegments:
         assert metadata[0]["end_time"] == 5.0
         assert metadata[0]["duration"] == 5.0
         assert metadata[0]["frame_count"] == 3
-        assert metadata[0]["image_url"] == "https://blob.vercel-storage.com/video/abc/images/segment_001.webp"
+        assert (
+            metadata[0]["image_url"]
+            == "https://blob.vercel-storage.com/video/abc/images/segment_001.webp"
+        )
         assert metadata[0]["compression_info"]["quality"] == 90
 
         assert mock_upload.call_count == 2
@@ -311,7 +330,7 @@ class TestUploadSegments:
     @patch("video_service.upload_to_vercel_blob")
     async def test_upload_segments_updates_progress(self, mock_upload):
         """Test that progress updates during upload."""
-        from video_service import JOBS, JOBS_LOCK
+        from slides_extractor.video_service import JOBS, JOBS_LOCK
 
         mock_upload.return_value = "https://blob.vercel-storage.com/url"
 
@@ -332,7 +351,7 @@ class TestExtractAndProcessFramesIntegration:
     @pytest.fixture(autouse=True)
     def cleanup_jobs(self):
         """Clear JOBS before each test."""
-        from video_service import JOBS, JOBS_LOCK
+        from slides_extractor.video_service import JOBS, JOBS_LOCK
 
         async def _clear() -> None:
             async with JOBS_LOCK:
@@ -346,9 +365,7 @@ class TestExtractAndProcessFramesIntegration:
     @patch("video_service._upload_segments")
     @patch("video_service._compress_segments")
     @patch("video_service._detect_static_segments")
-    async def test_full_pipeline_success(
-        self, mock_detect, mock_compress, mock_upload
-    ):
+    async def test_full_pipeline_success(self, mock_detect, mock_compress, mock_upload):
         """Test the full orchestration of all three phases."""
         # Mock each phase
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
@@ -368,9 +385,11 @@ class TestExtractAndProcessFramesIntegration:
         mock_upload.return_value = metadata
 
         # Import here to avoid circular dependency issues
-        from video_service import extract_and_process_frames
+        from slides_extractor.video_service import extract_and_process_frames
 
-        result = await extract_and_process_frames("/tmp/video.mp4", "video-id", "job-123")
+        result = await extract_and_process_frames(
+            "/tmp/video.mp4", "video-id", "job-123"
+        )
 
         assert result == metadata
         mock_detect.assert_called_once_with("/tmp/video.mp4", "job-123")
@@ -381,14 +400,20 @@ class TestExtractAndProcessFramesIntegration:
     @patch("video_service._detect_static_segments")
     async def test_full_pipeline_no_segments(self, mock_detect):
         """Test pipeline when no segments are detected."""
-        from video_service import extract_and_process_frames, JOBS, JOBS_LOCK
+        from slides_extractor.video_service import (
+            extract_and_process_frames,
+            JOBS,
+            JOBS_LOCK,
+        )
 
         mock_detect.return_value = ([], 100)
 
-        result = await extract_and_process_frames("/tmp/video.mp4", "video-id", "job-123")
+        result = await extract_and_process_frames(
+            "/tmp/video.mp4", "video-id", "job-123"
+        )
 
         assert result == []
-        
+
         # Should mark as completed
         async with JOBS_LOCK:
             assert JOBS["job-123"]["status"] == JobStatus.completed

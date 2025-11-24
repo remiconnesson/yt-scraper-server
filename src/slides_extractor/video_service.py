@@ -21,7 +21,11 @@ from enum import Enum
 from io import BytesIO
 from typing import Any, Optional
 
-from extract_slides.video_analyzer import FrameStreamer, Segment, SegmentDetector
+from slides_extractor.extract_slides.video_analyzer import (
+    FrameStreamer,
+    Segment,
+    SegmentDetector,
+)
 
 import cv2
 import numpy as np
@@ -283,9 +287,7 @@ async def stream_job_progress(job_id: str) -> AsyncGenerator[str, None]:
             break
 
         if (datetime.now(timezone.utc) - last_activity).total_seconds() >= 300:
-            raise TimeoutError(
-                f"No updates for job {job_id} in the last 300 seconds"
-            )
+            raise TimeoutError(f"No updates for job {job_id} in the last 300 seconds")
 
         await asyncio.sleep(1)
 
@@ -352,7 +354,9 @@ async def _compress_segments(
         if segment.representative_frame is None:  # Defensive check
             continue
 
-        compressed_frame, compression_info = compress_image(segment.representative_frame)
+        compressed_frame, compression_info = compress_image(
+            segment.representative_frame
+        )
         compressed.append((idx, segment, compressed_frame, compression_info))
 
     return compressed
@@ -425,9 +429,7 @@ async def extract_and_process_frames(
             return []
 
         compressed_segments = await _compress_segments(static_segments, job_id)
-        segment_metadata = await _upload_segments(
-            compressed_segments, video_id, job_id
-        )
+        segment_metadata = await _upload_segments(compressed_segments, video_id, job_id)
 
         await update_job_status(
             job_id,

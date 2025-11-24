@@ -4,7 +4,10 @@ from pathlib import Path
 
 import cv2
 
-from extract_slides.video_analyzer import AnalysisResult, Segment
+from slides_extractor.extract_slides.video_analyzer import (
+    AnalysisResult,
+    Segment,
+)
 
 
 def format_timestamp(seconds: float) -> str:
