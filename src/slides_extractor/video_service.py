@@ -146,8 +146,8 @@ def upload_to_s3(
 
     # Construct public URL
     endpoint = S3_ENDPOINT.rstrip("/")
-    # Assuming path-style access or that endpoint is the public root
-    return f"{endpoint}/{key}"
+    # Assuming path-style access
+    return f"{endpoint}/{S3_BUCKET_NAME}/{key}"
 
 
 async def update_job_status(
