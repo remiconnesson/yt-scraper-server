@@ -44,8 +44,8 @@ A python package with several concerns:
 | `/` | GET | Service status and quick links to other endpoints. |
 | `/process/youtube/{video_id}` | POST | Starts a background job to download video and audio streams for the given YouTube video ID. |
 | `/progress` | GET | Returns per-file download status, percent completion, and size information. |
-| `/jobs/{job_id}` | GET | Returns structured status for a specific job, including progress, messages, and metadata URLs when available. |
-| `/jobs/{job_id}/stream` | GET | Streams Server-Sent Events with job updates until completion or failure. |
+| `/jobs/{video_id}` | GET | Returns structured status for a specific job, including progress, messages, and metadata URLs when available. |
+| `/jobs/{video_id}/stream` | GET | Streams Server-Sent Events with job updates until completion or failure. |
 
 Example request to start a download:
 

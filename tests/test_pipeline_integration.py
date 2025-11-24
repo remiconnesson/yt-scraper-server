@@ -40,7 +40,6 @@ async def test_full_pipeline_with_test_bucket():
         create_test_video(video_path, duration_seconds=20, fps=5)
 
         video_id = "test_video_001"
-        job_id = "test_job_001"
 
         # Patch the bucket name to use 'test_bucket' (or a specific test bucket name you use)
         # In a real scenario, you might use moto to mock S3 entirely, or a dedicated test bucket.
@@ -62,9 +61,7 @@ async def test_full_pipeline_with_test_bucket():
                 pytest.skip("S3_ACCESS_KEY not set, skipping real S3 integration test")
 
             try:
-                metadata = await extract_and_process_frames(
-                    video_path, video_id, job_id
-                )
+                metadata = await extract_and_process_frames(video_path, video_id)
 
                 assert len(metadata) == 3
                 for segment in metadata:
@@ -85,10 +82,9 @@ async def test_full_pipeline_local_save():
         create_test_video(video_path, duration_seconds=20, fps=5)
 
         video_id = "test_video_local"
-        job_id = "test_job_local"
 
         metadata = await extract_and_process_frames(
-            video_path, video_id, job_id, local_output_dir=output_dir
+            video_path, video_id, local_output_dir=output_dir
         )
 
         assert len(metadata) == 3

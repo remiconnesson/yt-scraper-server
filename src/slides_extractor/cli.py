@@ -34,7 +34,6 @@ def process(video_id: str, output_dir: str, no_s3: bool):
         local_dir = "./output"
 
     video_url = f"https://www.youtube.com/watch?v={video_id}"
-    job_id = f"cli_job_{video_id}"
 
     click.echo(click.style(f"\nProcessing Video: {video_id}", fg="green", bold=True))
     click.echo(f"URL: {video_url}")
@@ -45,7 +44,7 @@ def process(video_id: str, output_dir: str, no_s3: bool):
     click.echo("=" * 50)
 
     try:
-        process_video_task(video_url, video_id, job_id, local_output_dir=local_dir)
+        process_video_task(video_url, video_id, local_output_dir=local_dir)
         click.echo(click.style("\nSuccess! Pipeline completed.", fg="green"))
     except Exception as e:
         click.echo(click.style(f"\nError: {e}", fg="red"), err=True)
