@@ -77,3 +77,28 @@ tools like `ruff` and `ty` are available:
 ```bash
 uv sync --dev
 ```
+
+## Deployment
+
+To deploy the application to Kubernetes:
+
+1.  **Create the configuration ConfigMap:**
+
+    ```bash
+    kubectl create configmap slides-extractor-config \
+      --from-literal=S3_ENDPOINT=your_s3_endpoint
+    ```
+
+2.  **Create the secrets:**
+
+    ```bash
+    kubectl create secret generic slides-extractor-secrets \
+      --from-literal=ZYTE_API_KEY=your_zyte_api_key \
+      --from-literal=S3_ACCESS_KEY=your_s3_access_key
+    ```
+
+3.  **Apply the deployment manifest:**
+
+    ```bash
+    kubectl apply -f deploy/prod.yaml
+    ```

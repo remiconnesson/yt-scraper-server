@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: slides-extractor
+  labels:
+    app: slides-extractor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: slides-extractor
+  template:
+    metadata:
+      labels:
+        app: slides-extractor
+    spec:
+      containers:
+      - name: slides-extractor
+        image: ghcr.io/yourusername/slides-extractor:latest # Replace with your actual image
+        ports:
+        - containerPort: 8000
+        env:
+        - name: ZYTE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: slides-extractor-secrets
+              key: ZYTE_API_KEY
+        - name: S3_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: slides-extractor-secrets
+              key: S3_ACCESS_KEY
+        - name: S3_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: slides-extractor-config
+              key: S3_ENDPOINT
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: slides-extractor
+  labels:
+    app: slides-extractor
+spec:
+  type: ClusterIP
+  selector:
+    app: slides-extractor
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: slides-extractor
+  annotations:
+    # Use the ClusterIssuer we created earlier
+    cert-manager.io/cluster-issuer: "letsencrypt-cloudflare"
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - extract-slides.remtoolz.ai
+    secretName: slides-extractor-tls
+  rules:
+  - host: extract-slides.remtoolz.ai
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: slides-extractor
+            port:
+              number: 80
+
