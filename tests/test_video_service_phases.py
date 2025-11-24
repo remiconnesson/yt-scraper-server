@@ -293,7 +293,22 @@ class TestUploadSegments:
 
         metadata = await _upload_segments(segments, "video-id", text_detector)
 
-        assert metadata == []
+        assert metadata == [
+            {
+                "segment_id": 1,
+                "start_time": 0.0,
+                "end_time": 1.0,
+                "duration": 1.0,
+                "frame_count": 1,
+                "has_text": False,
+                "text_confidence": pytest.approx(0.02),
+                "image_url": None,
+                "frame_id": None,
+                "s3_key": None,
+                "s3_bucket": None,
+                "s3_uri": None,
+            }
+        ]
         mock_upload.assert_not_called()
         mock_update_status.assert_awaited()
 
@@ -521,6 +536,35 @@ class TestBuildSegmentsManifest:
         }
 
         assert manifest == expected
+
+    def test_manifest_includes_text_confidence_for_all_static_segments(self):
+        """Text confidence and flags are present even when no frame is uploaded."""
+
+        video_id = "vid-456"
+        segments = [
+            Segment(type="static", start_time=0.0, end_time=1.0, frames=[]),
+            Segment(type="moving", start_time=1.0, end_time=2.0, frames=[]),
+        ]
+
+        static_metadata = [
+            {
+                "frame_id": None,
+                "image_url": None,
+                "s3_key": None,
+                "s3_bucket": None,
+                "s3_uri": None,
+                "has_text": False,
+                "text_confidence": 0.1234,
+            }
+        ]
+
+        manifest = _build_segments_manifest(video_id, segments, static_metadata)
+
+        static_entry = manifest[video_id]["segments"][0]
+        assert static_entry["kind"] == "static"
+        assert static_entry["has_text"] is False
+        assert static_entry["text_confidence"] == pytest.approx(0.1234)
+        assert static_entry.get("frame_id") is None
 
 
 class TestExtractAndProcessFramesManifestUpload:
