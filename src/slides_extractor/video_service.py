@@ -343,9 +343,13 @@ async def _upload_segments(
             continue
 
         bgr_frame = cv2.cvtColor(segment.representative_frame, cv2.COLOR_RGB2BGR)
-        has_text, text_confidence, total_ratio, largest_ratio = text_detector.detect(
-            bgr_frame
-        )
+        (
+            has_text,
+            text_confidence,
+            total_ratio,
+            largest_ratio,
+            boxes,
+        ) = text_detector.detect(bgr_frame)
 
         base_metadata: dict[str, Any] = {
             "segment_id": idx,
@@ -357,6 +361,8 @@ async def _upload_segments(
             "text_confidence": text_confidence,
             "text_total_area_ratio": total_ratio,
             "text_largest_area_ratio": largest_ratio,
+            "text_box_count": len(boxes),
+            "text_boxes": boxes,
             "image_url": None,
             "frame_id": None,
             "s3_key": None,
@@ -369,7 +375,7 @@ async def _upload_segments(
                 video_id,
                 JobStatus.uploading,
                 60.0 + (idx / total_static) * 40.0,
-                f"Skipped segment {idx}/{total_static} (text confidence {text_confidence:.4f})",
+                f"Skipped segment {idx}/{total_static} (text confidence {text_confidence:.4f}, boxes: {len(boxes)})",
             )
             segment_metadata.append(base_metadata)
             continue
@@ -392,6 +398,8 @@ async def _upload_segments(
             "text_conf": f"{text_confidence:.4f}",
             "text_total_area_ratio": f"{total_ratio:.6f}",
             "text_largest_area_ratio": f"{largest_ratio:.6f}",
+            "text_box_count": str(len(boxes)),
+            "text_boxes": json.dumps(boxes),
         }
 
         if local_output_dir:
@@ -419,7 +427,7 @@ async def _upload_segments(
             video_id,
             JobStatus.uploading,
             60.0 + (idx / total_static) * 40.0,
-            f"Uploaded segment {idx}/{total_static} (text confidence {text_confidence:.4f})",
+            f"Uploaded segment {idx}/{total_static} (text confidence {text_confidence:.4f}, boxes: {len(boxes)})",
             frame_count=segment.frame_count,
         )
 
@@ -480,6 +488,10 @@ def _build_segments_manifest(
                 entry["text_largest_area_ratio"] = static_meta.get(
                     "text_largest_area_ratio"
                 )
+            if "text_box_count" in static_meta:
+                entry["text_box_count"] = static_meta.get("text_box_count")
+            if "text_boxes" in static_meta:
+                entry["text_boxes"] = static_meta.get("text_boxes")
 
         manifest_segments.append(entry)
 

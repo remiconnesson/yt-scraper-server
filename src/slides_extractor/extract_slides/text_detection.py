@@ -68,7 +68,9 @@ class TextDetector:
 
         return detections, confidences
 
-    def detect(self, frame: np.ndarray) -> tuple[bool, float, float, float]:
+    def detect(
+        self, frame: np.ndarray
+    ) -> tuple[bool, float, float, float, list[tuple[int, int, int, int]]]:
         """Detect text presence in a frame.
 
         Args:
@@ -80,6 +82,7 @@ class TextDetector:
                 - Maximum detection confidence from EAST.
                 - Total text area ratio across all boxes.
                 - Largest single box area ratio.
+                - List of detected bounding boxes (x1, y1, x2, y2).
         """
 
         orig_h, orig_w = frame.shape[:2]
@@ -99,7 +102,7 @@ class TextDetector:
 
         boxes, confidences = self._decode(scores, geometry, TEXT_CONF_THRESHOLD)
         if not boxes:
-            return False, max_confidence, 0.0, 0.0
+            return False, max_confidence, 0.0, 0.0, []
 
         rects = [
             (x1, y1, x2 - x1, y2 - y1)
@@ -107,13 +110,14 @@ class TextDetector:
         ]
         indices = cv2.dnn.NMSBoxes(rects, confidences, TEXT_CONF_THRESHOLD, 0.55)
         if len(indices) == 0:
-            return False, max_confidence, 0.0, 0.0
+            return False, max_confidence, 0.0, 0.0, []
 
         scale_x = orig_w / float(TEXT_INPUT_SIZE[0])
         scale_y = orig_h / float(TEXT_INPUT_SIZE[1])
 
         total_area = 0.0
         largest_area = 0.0
+        detected_boxes: list[tuple[int, int, int, int]] = []
 
         for idx in indices.flatten():
             x1, y1, x2, y2 = boxes[idx]
@@ -129,9 +133,10 @@ class TextDetector:
             area = float((x2 - x1) * (y2 - y1))
             total_area += area
             largest_area = max(largest_area, area)
+            detected_boxes.append((x1, y1, x2, y2))
 
         if total_area == 0.0:
-            return False, max_confidence, 0.0, 0.0
+            return False, max_confidence, 0.0, 0.0, []
 
         frame_area = float(orig_w * orig_h)
         total_ratio = total_area / frame_area
@@ -142,4 +147,4 @@ class TextDetector:
             or largest_ratio >= MIN_LARGEST_BOX_RATIO
         )
 
-        return has_slide_text, max_confidence, total_ratio, largest_ratio
+        return has_slide_text, max_confidence, total_ratio, largest_ratio, detected_boxes
