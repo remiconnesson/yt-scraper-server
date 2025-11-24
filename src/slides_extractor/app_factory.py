@@ -5,7 +5,6 @@ import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
-from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
@@ -17,6 +16,7 @@ from slides_extractor.video_service import (
     JOBS,
     JOBS_LOCK,
     JobStatus,
+    check_s3_job_exists,
     stream_job_progress,
     update_job_status,
 )
@@ -63,24 +63,59 @@ def home():
 
 
 @app.post("/process/youtube/{video_id}")
-def process_youtube_video(video_id: str, background_tasks: BackgroundTasks):
+async def process_youtube_video(video_id: str, background_tasks: BackgroundTasks):
     video_url = f"https://www.youtube.com/watch?v={video_id}"
-    job_id = str(uuid4())
-    asyncio.run(
-        update_job_status(
-            job_id,
-            status=JobStatus.pending,
-            progress=0.0,
-            message="Job accepted",
-        )
+
+    async with JOBS_LOCK:
+        existing_job = dict(JOBS.get(video_id, {}))
+
+    existing_status = existing_job.get("status")
+    existing_status_value = (
+        existing_status.value
+        if isinstance(existing_status, JobStatus)
+        else str(existing_status).lower()
     )
-    background_tasks.add_task(process_video_task, video_url, video_id, job_id)
+    if existing_job and existing_status_value != JobStatus.failed.value:
+        return {
+            "message": "Job already in progress",
+            "video_id": video_id,
+            "job_id": video_id,
+            "track": f"/jobs/{video_id}",
+            "stream": f"/jobs/{video_id}/stream",
+            "job": existing_job,
+        }
+
+    metadata_url = check_s3_job_exists(video_id)
+    if metadata_url:
+        job_state = await update_job_status(
+            video_id,
+            status=JobStatus.completed,
+            progress=100.0,
+            message="Job already completed",
+            metadata_url=metadata_url,
+        )
+        return {
+            "message": "Job already completed",
+            "video_id": video_id,
+            "job_id": video_id,
+            "track": f"/jobs/{video_id}",
+            "stream": f"/jobs/{video_id}/stream",
+            "job": job_state,
+        }
+
+    await update_job_status(
+        video_id,
+        status=JobStatus.pending,
+        progress=0.0,
+        message="Job accepted",
+    )
+    background_tasks.add_task(process_video_task, video_url, video_id, video_id)
     return {
         "message": "Download started",
         "video_id": video_id,
-        "job_id": job_id,
-        "track": f"/jobs/{job_id}",
-        "stream": f"/jobs/{job_id}/stream",
+        "job_id": video_id,
+        "track": f"/jobs/{video_id}",
+        "stream": f"/jobs/{video_id}/stream",
     }
 
 
@@ -95,7 +130,17 @@ async def get_job(job_id: str) -> dict[str, Any]:
         job = dict(JOBS.get(job_id, {}))
 
     if not job:
-        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+        metadata_url = check_s3_job_exists(job_id)
+        if metadata_url:
+            job = await update_job_status(
+                job_id,
+                status=JobStatus.completed,
+                progress=100.0,
+                message="Job already completed",
+                metadata_url=metadata_url,
+            )
+        else:
+            raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
     return job
 

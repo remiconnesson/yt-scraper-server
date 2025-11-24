@@ -47,6 +47,7 @@ video_segments.json (example):
 
 import asyncio
 import json
+import logging
 import os
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
@@ -55,6 +56,7 @@ from typing import Any, Optional
 
 import boto3
 from botocore.client import Config
+from botocore.exceptions import ClientError
 from pydantic import BaseModel
 import cv2
 import requests
@@ -97,6 +99,10 @@ class ProcessRequest(BaseModel):
 
 JOBS: dict[str, dict[str, Any]] = {}
 JOBS_LOCK = asyncio.Lock()
+_S3_CLIENT = None
+_NORMALIZED_S3_ENDPOINT: str | None = None
+
+logger = logging.getLogger(__name__)
 
 
 def upload_to_s3(
@@ -121,19 +127,7 @@ def upload_to_s3(
     Returns:
         The S3 URL of the uploaded object (requires auth to access).
     """
-    if not S3_ENDPOINT or not S3_ACCESS_KEY:
-        raise RuntimeError(
-            "S3 configuration missing; set S3_ENDPOINT and S3_ACCESS_KEY"
-        )
-
-    # Configure S3 client
-    s3 = boto3.client(
-        "s3",
-        endpoint_url=S3_ENDPOINT,
-        aws_access_key_id=S3_ACCESS_KEY,
-        aws_secret_access_key=S3_ACCESS_KEY,
-        config=Config(signature_version="s3v4"),
-    )
+    s3 = _get_s3_client()
 
     # Generate presigned URL for PUT
     params: dict[str, Any] = {
@@ -169,7 +163,7 @@ def upload_to_s3(
     response.raise_for_status()
 
     # Construct public URL
-    endpoint = S3_ENDPOINT.rstrip("/")
+    endpoint = _get_s3_endpoint()
     return f"{endpoint}/{S3_BUCKET_NAME}/{key}"
 
 
@@ -483,3 +477,59 @@ async def extract_and_process_frames(
     )
 
     return segment_metadata
+
+
+def _get_s3_endpoint() -> str:
+    if not S3_ENDPOINT:
+        raise RuntimeError("S3 configuration missing; set S3_ENDPOINT")
+
+    global _NORMALIZED_S3_ENDPOINT
+    if _NORMALIZED_S3_ENDPOINT is None:
+        if S3_ENDPOINT.startswith(("http://", "https://")):
+            endpoint = S3_ENDPOINT
+        else:
+            endpoint = f"https://{S3_ENDPOINT}"
+        _NORMALIZED_S3_ENDPOINT = endpoint.rstrip("/")
+
+    return _NORMALIZED_S3_ENDPOINT
+
+
+def _get_s3_client():
+    if not S3_ENDPOINT or not S3_ACCESS_KEY:
+        raise RuntimeError(
+            "S3 configuration missing; set S3_ENDPOINT and S3_ACCESS_KEY"
+        )
+
+    global _S3_CLIENT
+    if _S3_CLIENT is None:
+        _S3_CLIENT = boto3.client(
+            "s3",
+            endpoint_url=_get_s3_endpoint(),
+            aws_access_key_id=S3_ACCESS_KEY,
+            aws_secret_access_key=S3_ACCESS_KEY,
+            config=Config(signature_version="s3v4"),
+        )
+
+    return _S3_CLIENT
+
+
+def check_s3_job_exists(video_id: str) -> str | None:
+    """Return public S3 URL if the job output already exists."""
+
+    if not S3_ENDPOINT or not S3_ACCESS_KEY:
+        return None
+
+    key = f"video/{video_id}/video_segments.json"
+    try:
+        s3 = _get_s3_client()
+        s3.head_object(Bucket=S3_BUCKET_NAME, Key=key)
+        endpoint = _get_s3_endpoint()
+        return f"{endpoint}/{S3_BUCKET_NAME}/{key}"
+    except ClientError as exc:
+        if exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404:
+            return None
+        logger.warning("Failed to check job existence in S3 for %s: %s", video_id, exc)
+        return None
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.warning("Unexpected error checking S3 for %s: %s", video_id, exc)
+        return None
