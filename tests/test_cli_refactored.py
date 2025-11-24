@@ -22,7 +22,7 @@ class VideoAnalysisConfigOptions(TypedDict):
 class TestVideoAnalysisConfig:
     """Test VideoAnalysisConfig dataclass."""
 
-    def test_config_with_defaults(self):
+    def test_config_with_defaults(self) -> None:
         """Test config creation with default values."""
         config = VideoAnalysisConfig(
             input_file="/tmp/video.mp4",
@@ -38,7 +38,7 @@ class TestVideoAnalysisConfig:
         assert config.min_static_frames == 3
         assert config.verbose is False
 
-    def test_config_with_custom_values(self):
+    def test_config_with_custom_values(self) -> None:
         """Test config creation with custom values."""
         config = VideoAnalysisConfig(
             input_file="/tmp/video.mp4",
@@ -58,7 +58,7 @@ class TestVideoAnalysisConfig:
         assert config.min_static_frames == 5
         assert config.verbose is True
 
-    def test_to_analysis_config(self):
+    def test_to_analysis_config(self) -> None:
         """Test conversion to AnalysisConfig TypedDict."""
         config = VideoAnalysisConfig(
             input_file="/tmp/video.mp4",
@@ -83,7 +83,7 @@ class TestVideoAnalysisConfig:
         assert "output_dir" not in analysis_config
         assert "verbose" not in analysis_config
 
-    def test_config_from_kwargs(self):
+    def test_config_from_kwargs(self) -> None:
         """Test creating config from **kwargs (as CLI does)."""
         kwargs: VideoAnalysisConfigOptions = {
             "input_file": "/tmp/video.mp4",
@@ -105,7 +105,7 @@ class TestVideoAnalysisConfig:
 class TestCLIVideoAnalysis:
     """Test CLI commands with the refactored config system."""
 
-    def test_analyze_video_command_with_defaults(self):
+    def test_analyze_video_command_with_defaults(self) -> None:
         """Test analyze-video command uses default config values."""
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -129,7 +129,7 @@ class TestCLIVideoAnalysis:
                 "analyze-video" in str(result.output).lower() or result.exit_code != 0
             )
 
-    def test_analyze_video_command_with_custom_grid(self):
+    def test_analyze_video_command_with_custom_grid(self) -> None:
         """Test analyze-video command with custom grid settings."""
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -153,7 +153,7 @@ class TestCLIVideoAnalysis:
             # Command should be recognized even if execution fails
             assert result.exit_code != 0 or "analyzing" in str(result.output).lower()
 
-    def test_video_main_standalone_command(self):
+    def test_video_main_standalone_command(self) -> None:
         """Test video_main standalone entry point."""
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -172,7 +172,7 @@ class TestCLIVideoAnalysis:
             # Should attempt to run (will fail on real analysis)
             assert result.exit_code != 0 or "analyzing" in str(result.output).lower()
 
-    def test_analyze_video_validates_grid_dimensions(self):
+    def test_analyze_video_validates_grid_dimensions(self) -> None:
         """Test that zero or negative grid dimensions are rejected."""
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -194,7 +194,7 @@ class TestCLIVideoAnalysis:
             assert result.exit_code == 1
             assert "Grid dimensions must be positive" in result.output
 
-    def test_analyze_video_validates_static_cell_ratio(self):
+    def test_analyze_video_validates_static_cell_ratio(self) -> None:
         """Test that invalid static cell ratio is rejected."""
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -216,7 +216,7 @@ class TestCLIVideoAnalysis:
             assert result.exit_code == 1
             assert "min-static-cell-ratio must be between 0 and 1" in result.output
 
-    def test_analyze_video_validates_min_static_frames(self):
+    def test_analyze_video_validates_min_static_frames(self) -> None:
         """Test that invalid min static frames is rejected."""
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -238,7 +238,7 @@ class TestCLIVideoAnalysis:
             assert result.exit_code == 1
             assert "min-static-frames must be at least 1" in result.output
 
-    def test_analyze_video_verbose_flag(self):
+    def test_analyze_video_verbose_flag(self) -> None:
         """Test that verbose flag enables extra output."""
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -264,7 +264,7 @@ class TestCLIVideoAnalysis:
 class TestCLIBackwardCompatibility:
     """Test that refactored CLI maintains backward compatibility."""
 
-    def test_all_original_options_still_work(self):
+    def test_all_original_options_still_work(self) -> None:
         """Test that all original command-line options still work."""
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -298,7 +298,7 @@ class TestCLIBackwardCompatibility:
             assert "no such option" not in result.output.lower()
             assert "unrecognized argument" not in result.output.lower()
 
-    def test_video_static_segments_command_still_works(self):
+    def test_video_static_segments_command_still_works(self) -> None:
         """Test that standalone video_static_segments command works."""
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -322,7 +322,7 @@ class TestCLIBackwardCompatibility:
 class TestCLIErrorMessages:
     """Test that error messages are helpful."""
 
-    def test_missing_required_input(self):
+    def test_missing_required_input(self) -> None:
         """Test error when --input is missing."""
         runner = CliRunner()
         result = runner.invoke(
@@ -333,7 +333,7 @@ class TestCLIErrorMessages:
         assert result.exit_code != 0
         assert "--input" in result.output or "required" in result.output.lower()
 
-    def test_missing_required_output_dir(self):
+    def test_missing_required_output_dir(self) -> None:
         """Test error when --output-dir is missing."""
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -348,7 +348,7 @@ class TestCLIErrorMessages:
                 "--output-dir" in result.output or "required" in result.output.lower()
             )
 
-    def test_nonexistent_input_file(self):
+    def test_nonexistent_input_file(self) -> None:
         """Test error when input file doesn't exist."""
         runner = CliRunner()
         result = runner.invoke(
@@ -369,7 +369,7 @@ class TestCLIErrorMessages:
 class TestRefactoringBenefits:
     """Tests that demonstrate benefits of the refactoring."""
 
-    def test_config_is_immutable(self):
+    def test_config_is_immutable(self) -> None:
         """Test that config dataclass is immutable (frozen would be ideal)."""
         config = VideoAnalysisConfig(
             input_file="/tmp/video.mp4",
@@ -382,7 +382,7 @@ class TestRefactoringBenefits:
         # If frozen, this would raise FrozenInstanceError
         # For now, just ensure we can create configs consistently
 
-    def test_config_separates_cli_from_logic(self):
+    def test_config_separates_cli_from_logic(self) -> None:
         """Test that CLI concerns are separate from analysis logic."""
         # Create config from CLI-like kwargs
         cli_kwargs: VideoAnalysisConfigOptions = {
@@ -410,7 +410,7 @@ class TestRefactoringBenefits:
         assert "grid_cols" in analysis_config
         assert "cell_hash_threshold" in analysis_config
 
-    def test_adding_new_parameter_is_easy(self):
+    def test_adding_new_parameter_is_easy(self) -> None:
         """Demonstrate that adding parameters is now easier."""
         # With the dataclass pattern, adding a new parameter only requires:
         # 1. Add field to VideoAnalysisConfig

@@ -17,13 +17,13 @@ def _safe_title(title: str) -> str:
     ).rstrip()
 
 
-def process_video_task(video_url: str):
+def process_video_task(video_url: str) -> None:
     logger.info(f"Job Started: {video_url}")
     try:
         vid_url, _, title = get_stream_urls(video_url)
 
         if vid_url:
-            safe_title = _safe_title(title)
+            safe_title = _safe_title(title or "video")
 
             with ThreadPoolExecutor(max_workers=2) as executor:
                 video_future = executor.submit(

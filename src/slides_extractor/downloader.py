@@ -4,7 +4,7 @@ import re
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Dict, Optional, TypedDict, cast
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -29,10 +29,16 @@ logger = logging.getLogger("scraper")
 
 
 class YoutubeDLParams(TypedDict, total=False):
-    quiet: bool
-    no_warnings: bool
-    nocheckcertificate: bool
-    proxy: str
+    quiet: bool | None
+    no_warnings: bool | None
+    nocheckcertificate: bool | None
+    proxy: str | None
+
+
+if TYPE_CHECKING:
+    from yt_dlp import _Params as YoutubeDLRawParams
+else:
+    YoutubeDLRawParams = Dict[str, Any]
 
 
 class DownloadResult:
@@ -114,7 +120,9 @@ def get_file_size(url: str, headers: Dict[str, str], proxies: Dict[str, str]) ->
     return _size_from_clen(url) or _size_from_head() or _size_from_range_probe() or 0
 
 
-def get_stream_urls(video_url):
+def get_stream_urls(
+    video_url: str,
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
     if not ZYTE_API_KEY:
         logger.error("CRITICAL: ZYTE_API_KEY is missing")
         return None, None, None
@@ -130,7 +138,8 @@ def get_stream_urls(video_url):
 
     try:
         logger.info(f"Phase A: Fetching metadata for {video_url}...")
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        raw_opts = cast(YoutubeDLRawParams, ydl_opts)
+        with yt_dlp.YoutubeDL(raw_opts) as ydl:
             info = cast(dict[str, Any], ydl.extract_info(video_url, download=False))
             title = str(info.get("title") or "video")
             formats: list[dict[str, Any]] = cast(
