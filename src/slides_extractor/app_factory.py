@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -68,20 +69,33 @@ async def process_youtube_video(video_id: str, background_tasks: BackgroundTasks
 
     async with JOBS_LOCK:
         existing_job = dict(JOBS.get(video_id, {}))
+        existing_status = existing_job.get("status")
+        existing_status_value = (
+            existing_status.value
+            if isinstance(existing_status, JobStatus)
+            else str(existing_status).lower()
+            if existing_status is not None
+            else None
+        )
+        if existing_job and existing_status_value != JobStatus.failed.value:
+            message = (
+                "Job already completed"
+                if existing_status_value == JobStatus.completed.value
+                else "Job already in progress"
+            )
+            return {
+                "message": message,
+                "video_id": video_id,
+                "track": f"/jobs/{video_id}",
+                "stream": f"/jobs/{video_id}/stream",
+                "job": existing_job,
+            }
 
-    existing_status = existing_job.get("status")
-    existing_status_value = (
-        existing_status.value
-        if isinstance(existing_status, JobStatus)
-        else str(existing_status).lower()
-    )
-    if existing_job and existing_status_value != JobStatus.failed.value:
-        return {
-            "message": "Job already in progress",
-            "video_id": video_id,
-            "track": f"/jobs/{video_id}",
-            "stream": f"/jobs/{video_id}/stream",
-            "job": existing_job,
+        JOBS[video_id] = {
+            "status": JobStatus.pending,
+            "progress": 0.0,
+            "message": "Job initialized",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
     metadata_url = check_s3_job_exists(video_id)
