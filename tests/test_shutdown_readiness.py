@@ -11,6 +11,7 @@ from slides_extractor.app_factory import (
     SHUTDOWN_REQUESTED,
     app,
     reset_shutdown_state,
+    reset_shutdown_state_for_tests,
     wait_for_active_jobs,
 )
 from slides_extractor.video_service import JOBS, JOBS_LOCK, JobStatus
@@ -37,6 +38,24 @@ def test_readiness_probe_reflects_drain_state():
         assert draining_response.status_code == 503
         assert SHUTDOWN_REQUESTED.is_set()
         assert not READINESS_EVENT.is_set()
+
+    asyncio.run(_clear_jobs())
+    reset_shutdown_state()
+
+
+def test_process_rejects_when_draining():
+    reset_shutdown_state()
+
+    with TestClient(app) as client:
+        client.headers.update({"Authorization": "Bearer testpassword"})
+
+        drain_response = client.post("/drain")
+        assert drain_response.status_code == 202
+
+        process_response = client.post("/process/youtube/testid")
+
+        assert process_response.status_code == 503
+        assert process_response.json()["detail"] == "Draining for shutdown"
 
     asyncio.run(_clear_jobs())
     reset_shutdown_state()
