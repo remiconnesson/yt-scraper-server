@@ -8,7 +8,11 @@ from slides_extractor.downloader import (
     download_file_parallel,
     get_stream_urls,
 )
-from slides_extractor.video_service import extract_and_process_frames
+from slides_extractor.video_service import (
+    JobStatus,
+    extract_and_process_frames,
+    update_job_status,
+)
 
 logger = logging.getLogger("scraper")
 
@@ -44,13 +48,39 @@ def process_video_task(video_url: str, video_id: str, job_id: str) -> None:
 
             logger.info("Starting slide extraction...")
             video_path = video_result.path or f"{safe_title}_video.mp4"
-            asyncio.run(
-                extract_and_process_frames(
-                    video_path=video_path,
-                    video_id=video_id,
-                    job_id=job_id,
+            try:
+                asyncio.run(
+                    extract_and_process_frames(
+                        video_path=video_path,
+                        video_id=video_id,
+                        job_id=job_id,
+                    )
                 )
-            )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception(
+                    "Job Failed during slide extraction for %s (job_id=%s)",
+                    video_url,
+                    job_id,
+                )
+                try:
+                    asyncio.run(
+                        update_job_status(
+                            job_id,
+                            JobStatus.failed,
+                            0.0,
+                            "Slide extraction failed",
+                            error=str(exc),
+                        )
+                    )
+                except Exception as status_exc:  # noqa: BLE001
+                    logger.error(
+                        "Unable to record failure status for %s (job_id=%s): %s",
+                        video_url,
+                        job_id,
+                        status_exc,
+                    )
+                return
+
             logger.info(f"Job Finished: {safe_title}")
         else:
             logger.error("Job Failed during Phase A")
