@@ -55,10 +55,13 @@ from enum import Enum
 from typing import Any, Optional
 
 import boto3
+import cv2
+import imagehash
+import numpy as np
 from botocore.client import Config
 from botocore.exceptions import ClientError
+from PIL import Image
 from pydantic import BaseModel
-import cv2
 import requests
 
 from slides_extractor.extract_slides.video_analyzer import (
@@ -184,6 +187,13 @@ def upload_to_s3(
     response.raise_for_status()
 
     return f"s3://{S3_BUCKET_NAME}/{key}"
+
+
+def _compute_frame_hash(frame: np.ndarray) -> imagehash.ImageHash:
+    """Compute a perceptual hash for deduplicating visually similar frames."""
+
+    pil_image = Image.fromarray(frame)
+    return imagehash.phash(pil_image, hash_size=16)
 
 
 async def update_job_status(
@@ -347,14 +357,39 @@ async def _upload_segments(
     video_id: str,
     text_detector: TextDetector,
     local_output_dir: Optional[str] = None,
+    dedup_threshold: int = 5,
 ) -> list[dict[str, Any]]:
     """Upload representative frames to S3 or save locally and report progress."""
 
     total_static = len(segments) or 1
-    segment_metadata: list[dict[str, Any]] = []
+
+    # Phase 1: collect hashes and text detection results
+    segment_info: list[dict[str, Any]] = []
+    base_metadata: list[dict[str, Any]] = []
+    hash_records: list[tuple[imagehash.ImageHash, int]] = []
 
     for idx, segment in enumerate(segments, start=1):
         if segment.representative_frame is None:
+            base_metadata.append(
+                {
+                    "segment_id": idx,
+                    "start_time": segment.start_time,
+                    "end_time": segment.end_time,
+                    "duration": segment.duration,
+                    "frame_count": segment.frame_count,
+                    "has_text": False,
+                    "text_confidence": 0.0,
+                    "text_total_area_ratio": 0.0,
+                    "text_largest_area_ratio": 0.0,
+                    "text_box_count": 0,
+                    "image_url": None,
+                    "frame_id": None,
+                    "s3_key": None,
+                    "s3_bucket": None,
+                    "s3_uri": None,
+                }
+            )
+            segment_info.append({"skip": True})
             continue
 
         bgr_frame = cv2.cvtColor(segment.representative_frame, cv2.COLOR_RGB2BGR)
@@ -366,36 +401,74 @@ async def _upload_segments(
             boxes,
         ) = text_detector.detect(bgr_frame)
 
-        base_metadata: dict[str, Any] = {
-            "segment_id": idx,
-            "start_time": segment.start_time,
-            "end_time": segment.end_time,
-            "duration": segment.duration,
-            "frame_count": segment.frame_count,
-            "has_text": has_text,
-            "text_confidence": text_confidence,
-            "text_total_area_ratio": total_ratio,
-            "text_largest_area_ratio": largest_ratio,
-            "text_box_count": len(boxes),
-            "image_url": None,
-            "frame_id": None,
-            "s3_key": None,
-            "s3_bucket": None,
-            "s3_uri": None,
-        }
+        frame_hash = _compute_frame_hash(segment.representative_frame)
 
-        if not has_text:
+        duplicate_of = None
+        for existing_hash, first_idx in hash_records:
+            if frame_hash - existing_hash <= dedup_threshold:
+                duplicate_of = first_idx
+                break
+
+        if duplicate_of is None:
+            hash_records.append((frame_hash, idx))
+
+        base_metadata.append(
+            {
+                "segment_id": idx,
+                "start_time": segment.start_time,
+                "end_time": segment.end_time,
+                "duration": segment.duration,
+                "frame_count": segment.frame_count,
+                "has_text": has_text,
+                "text_confidence": text_confidence,
+                "text_total_area_ratio": total_ratio,
+                "text_largest_area_ratio": largest_ratio,
+                "text_box_count": len(boxes),
+                "image_url": None,
+                "frame_id": None,
+                "s3_key": None,
+                "s3_bucket": None,
+                "s3_uri": None,
+            }
+        )
+
+        segment_info.append(
+            {
+                "skip": not has_text,
+                "frame": bgr_frame,
+                "has_text": has_text,
+                "text_confidence": text_confidence,
+                "text_box_count": len(boxes),
+                "duplicate_of": duplicate_of,
+            }
+        )
+
+    # Phase 2: upload only unique frames, reuse metadata for duplicates
+    uploaded: dict[int, dict[str, Any]] = {}
+
+    for idx, (segment, info) in enumerate(zip(segments, segment_info), start=1):
+        if info.get("skip"):
             await update_job_status(
                 video_id,
                 JobStatus.uploading,
                 60.0 + (idx / total_static) * 40.0,
-                f"Skipped segment {idx}/{total_static} (text confidence {text_confidence:.4f}, boxes: {len(boxes)})",
+                f"Skipped segment {idx}/{total_static} (text confidence {info.get('text_confidence', 0.0):.4f}, boxes: {info.get('text_box_count', 0)})",
             )
-            segment_metadata.append(base_metadata)
+            continue
+
+        duplicate_of = info.get("duplicate_of")
+        if duplicate_of is not None:
+            uploaded[idx] = uploaded[duplicate_of]
+            await update_job_status(
+                video_id,
+                JobStatus.uploading,
+                60.0 + (idx / total_static) * 40.0,
+                f"Segment {idx}/{total_static} (duplicate of {duplicate_of})",
+            )
             continue
 
         success, buffer = cv2.imencode(
-            ".webp", bgr_frame, [cv2.IMWRITE_WEBP_QUALITY, SLIDE_IMAGE_QUALITY]
+            ".webp", info["frame"], [cv2.IMWRITE_WEBP_QUALITY, SLIDE_IMAGE_QUALITY]
         )
         if not success:
             raise ValueError("Failed to encode frame to WebP")
@@ -408,12 +481,16 @@ async def _upload_segments(
             "segment_id": str(idx),
             "start_time": str(segment.start_time),
             "end_time": str(segment.end_time),
-            "has_text": str(has_text).lower(),
-            "text_conf": f"{text_confidence:.4f}",
-            "text_total_area_ratio": f"{total_ratio:.6f}",
-            "text_largest_area_ratio": f"{largest_ratio:.6f}",
-            "text_box_count": str(len(boxes)),
+            "has_text": str(info.get("has_text", False)).lower(),
+            "text_conf": f"{info.get('text_confidence', 0.0):.4f}",
+            "text_box_count": str(info.get("text_box_count", 0)),
         }
+
+        base_meta = base_metadata[idx - 1]
+        if "text_total_area_ratio" in base_meta:
+            metadata["text_total_area_ratio"] = f"{base_meta['text_total_area_ratio']:.6f}"
+        if "text_largest_area_ratio" in base_meta:
+            metadata["text_largest_area_ratio"] = f"{base_meta['text_largest_area_ratio']:.6f}"
 
         if local_output_dir:
             full_dir = os.path.join(
@@ -440,20 +517,27 @@ async def _upload_segments(
             video_id,
             JobStatus.uploading,
             60.0 + (idx / total_static) * 40.0,
-            f"Uploaded segment {idx}/{total_static} (text confidence {text_confidence:.4f}, boxes: {len(boxes)})",
+            f"Uploaded segment {idx}/{total_static} (text confidence {info.get('text_confidence', 0.0):.4f}, boxes: {info.get('text_box_count', 0)})",
             frame_count=segment.frame_count,
         )
 
-        segment_metadata.append(
-            {
-                **base_metadata,
-                "image_url": image_url,
-                "frame_id": frame_id,
-                "s3_key": s3_key,
-                "s3_bucket": bucket_name,
-                "s3_uri": uri,
-            }
-        )
+        uploaded[idx] = {
+            "image_url": image_url,
+            "frame_id": frame_id,
+            "s3_key": s3_key,
+            "s3_bucket": bucket_name,
+            "s3_uri": uri,
+        }
+
+    # Phase 3: assemble final metadata, reusing upload info for duplicates
+    segment_metadata: list[dict[str, Any]] = []
+    for idx, base_meta in enumerate(base_metadata, start=1):
+        entry = dict(base_meta)
+        if idx in uploaded:
+            entry.update(uploaded[idx])
+        elif (duplicate_of := segment_info[idx - 1].get("duplicate_of")) is not None:
+            entry.update(uploaded.get(duplicate_of, {}))
+        segment_metadata.append(entry)
 
     return segment_metadata
 

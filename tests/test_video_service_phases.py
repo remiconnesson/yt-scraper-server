@@ -167,8 +167,10 @@ class TestUploadSegments:
             metadata[0]["s3_uri"]
             == f"s3://{metadata[0]['s3_bucket']}/video/video-abc/static_frames/static_frame_000001.webp"
         )
-        assert mock_upload.call_count == 2
-        assert mock_imencode.call_count == 2
+        assert metadata[1]["image_url"] == metadata[0]["image_url"]
+        assert metadata[1]["s3_uri"] == metadata[0]["s3_uri"]
+        assert mock_upload.call_count == 1
+        assert mock_imencode.call_count == 1
         assert mock_imencode.call_args[0][0] == ".webp"
         assert mock_imencode.call_args[0][2] == [
             cv2.IMWRITE_WEBP_QUALITY,
