@@ -362,7 +362,6 @@ async def _upload_segments(
             "text_total_area_ratio": total_ratio,
             "text_largest_area_ratio": largest_ratio,
             "text_box_count": len(boxes),
-            "text_boxes": boxes,
             "image_url": None,
             "frame_id": None,
             "s3_key": None,
@@ -399,7 +398,6 @@ async def _upload_segments(
             "text_total_area_ratio": f"{total_ratio:.6f}",
             "text_largest_area_ratio": f"{largest_ratio:.6f}",
             "text_box_count": str(len(boxes)),
-            "text_boxes": json.dumps(boxes),
         }
 
         if local_output_dir:
@@ -490,8 +488,6 @@ def _build_segments_manifest(
                 )
             if "text_box_count" in static_meta:
                 entry["text_box_count"] = static_meta.get("text_box_count")
-            if "text_boxes" in static_meta:
-                entry["text_boxes"] = static_meta.get("text_boxes")
 
         manifest_segments.append(entry)
 

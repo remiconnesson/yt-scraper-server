@@ -21,7 +21,7 @@ from slides_extractor.extract_slides.video_analyzer import Segment
 @pytest.fixture
 def text_detector():
     detector = Mock()
-    detector.detect.return_value = (True, 0.5)
+    detector.detect.return_value = (True, 0.5, 0.01, 0.01, [])
     return detector
 
 
@@ -277,7 +277,7 @@ class TestUploadSegments:
     ):
         """Frames with low confidence text detection should be skipped."""
 
-        text_detector.detect.return_value = (False, 0.02)
+        text_detector.detect.return_value = (False, 0.02, 0.0, 0.0, [])
         mock_imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
 
         frame = np.zeros((10, 10, 3), dtype=np.uint8)
@@ -302,6 +302,9 @@ class TestUploadSegments:
                 "frame_count": 1,
                 "has_text": False,
                 "text_confidence": pytest.approx(0.02),
+                "text_total_area_ratio": 0.0,
+                "text_largest_area_ratio": 0.0,
+                "text_box_count": 0,
                 "image_url": None,
                 "frame_id": None,
                 "s3_key": None,
@@ -377,7 +380,13 @@ class TestExtractAndProcessFramesIntegration:
         ]
         mock_upload.return_value = metadata
         mock_upload_s3.return_value = "https://s3-endpoint/bucket/manifest.json"
-        mock_text_detector.return_value.detect.return_value = (True, 0.75)
+        mock_text_detector.return_value.detect.return_value = (
+            True,
+            0.75,
+            0.02,
+            0.02,
+            [],
+        )
 
         # Import here to avoid circular dependency issues
         from slides_extractor.video_service import extract_and_process_frames
@@ -407,7 +416,13 @@ class TestExtractAndProcessFramesIntegration:
         )
 
         mock_detect.return_value = ([], [], 100)
-        mock_text_detector.return_value.detect.return_value = (False, 0.0)
+        mock_text_detector.return_value.detect.return_value = (
+            False,
+            0.0,
+            0.0,
+            0.0,
+            [],
+        )
 
         result = await extract_and_process_frames("/tmp/video.mp4", "video-id")
 
@@ -566,6 +581,27 @@ class TestBuildSegmentsManifest:
         assert static_entry["text_confidence"] == pytest.approx(0.1234)
         assert static_entry.get("frame_id") is None
 
+    def test_manifest_omits_text_boxes(self):
+        """Uploaded manifest should not include raw text box coordinates."""
+
+        video_id = "vid-789"
+        segments = [Segment(type="static", start_time=0.0, end_time=1.0, frames=[])]
+        static_metadata = [
+            {
+                "frame_id": "static_frame_000001.webp",
+                "image_url": "https://example.com/static_frame_000001.webp",
+                "s3_key": "video/vid-789/static_frames/static_frame_000001.webp",
+                "s3_bucket": "bucket-2",
+                "s3_uri": "s3://bucket-2/video/vid-789/static_frames/static_frame_000001.webp",
+                "text_boxes": [[1152, 72, 1271, 145]],
+            }
+        ]
+
+        manifest = _build_segments_manifest(video_id, segments, static_metadata)
+
+        static_entry = manifest[video_id]["segments"][0]
+        assert "text_boxes" not in static_entry
+
 
 class TestExtractAndProcessFramesManifestUpload:
     """Validate manifest upload behavior during extraction pipeline."""
@@ -620,7 +656,13 @@ class TestExtractAndProcessFramesManifestUpload:
         mock_upload_to_s3.return_value = (
             f"s3://{S3_BUCKET_NAME}/video/vid/video_segments.json"
         )
-        mock_text_detector.return_value.detect.return_value = (True, 0.9)
+        mock_text_detector.return_value.detect.return_value = (
+            True,
+            0.9,
+            0.03,
+            0.03,
+            [],
+        )
 
         await extract_and_process_frames("/tmp/video.mp4", "vid")
 
