@@ -149,6 +149,36 @@ class TestUploadSegments:
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.cv2.imencode")
     @patch("slides_extractor.video_service.upload_to_s3")
+    async def test_upload_segments_converts_rgb_to_bgr(
+        self, mock_upload, mock_imencode
+    ):
+        """Ensure frames are converted to BGR before encoding."""
+
+        mock_upload.return_value = "https://s3-endpoint/bucket/url"
+        mock_imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
+
+        frame = np.zeros((5, 5, 3), dtype=np.uint8)
+        frame[0, 0] = np.array([255, 0, 0], dtype=np.uint8)  # Red in RGB
+
+        segments = [
+            Segment(
+                type="static",
+                start_time=0.0,
+                end_time=1.0,
+                representative_frame=frame,
+                frames=[0],
+            ),
+        ]
+
+        await _upload_segments(segments, "video-abc", "job-123")
+
+        called_frame = mock_imencode.call_args[0][1]
+        assert called_frame.shape == frame.shape
+        assert np.array_equal(called_frame[0, 0], np.array([0, 0, 255], dtype=np.uint8))
+
+    @pytest.mark.asyncio
+    @patch("slides_extractor.video_service.cv2.imencode")
+    @patch("slides_extractor.video_service.upload_to_s3")
     async def test_upload_segments_correct_blob_keys(self, mock_upload, mock_imencode):
         """Test that blob keys are formatted correctly."""
         mock_upload.return_value = "https://s3-endpoint/bucket/url"

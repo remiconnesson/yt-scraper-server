@@ -328,7 +328,8 @@ async def _upload_segments(
         if segment.representative_frame is None:
             continue
 
-        success, buffer = cv2.imencode(".png", segment.representative_frame)
+        bgr_frame = cv2.cvtColor(segment.representative_frame, cv2.COLOR_RGB2BGR)
+        success, buffer = cv2.imencode(".png", bgr_frame)
         if not success:
             raise ValueError("Failed to encode frame to PNG")
 
