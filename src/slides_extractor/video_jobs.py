@@ -55,6 +55,22 @@ def process_video_task(
             for kind, result in {"video": video_result}.items():
                 if not result.success:
                     logger.error(f"{kind.title()} download failed: {result.error}")
+                    try:
+                        asyncio.run(
+                            update_job_status(
+                                job_id,
+                                JobStatus.failed,
+                                0.0,
+                                "Video download failed",
+                                error=str(result.error),
+                            )
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.exception(
+                            "Unable to record failure status for %s (job_id=%s)",
+                            video_url,
+                            job_id,
+                        )
                     return
 
             logger.info("Starting slide extraction...")
@@ -95,6 +111,45 @@ def process_video_task(
 
             logger.info(f"Job Finished: {safe_title}")
         else:
-            logger.error("Job Failed during Phase A")
+            logger.error("Job Failed during Phase A (no video stream URL)")
+            try:
+                asyncio.run(
+                    update_job_status(
+                        job_id,
+                        JobStatus.failed,
+                        0.0,
+                        "Unable to resolve video stream URL",
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Unable to record failure status for %s (job_id=%s)",
+                    video_url,
+                    job_id,
+                )
+            return
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "Job Failed prior to slide extraction for %s (job_id=%s)",
+            video_url,
+            job_id,
+        )
+        try:
+            asyncio.run(
+                update_job_status(
+                    job_id,
+                    JobStatus.failed,
+                    0.0,
+                    "Job failed before slide extraction",
+                    error=str(exc),
+                )
+            )
+        except Exception as status_exc:  # noqa: BLE001
+            logger.error(
+                "Unable to record failure status for %s (job_id=%s): %s",
+                video_url,
+                job_id,
+                status_exc,
+            )
     finally:
         cleanup_old_downloads()
