@@ -9,7 +9,7 @@ help:
 	@echo "  check      - Run typecheck and lint"
 	@echo "  test       - Run tests with pytest"
 	@echo "  all        - Run format, typecheck, lint, and test"
-	@echo "  slides-image - Build/push slides-extractor image"
+	@echo "  new-version - Build/push slides-extractor image"
 
 typecheck:
 	uv run ty check
@@ -25,7 +25,7 @@ check: typecheck lint
 test:
 	uv run pytest
 
-slides-image:
+new-version:
 ifndef TAG
 	$(error TAG must be provided, e.g. make slides-image TAG=v0.0.0)
 endif
