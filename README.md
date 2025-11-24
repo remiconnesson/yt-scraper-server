@@ -122,3 +122,22 @@ To deploy the application to Kubernetes:
     ```bash
     kubectl apply -f deploy/prod.yaml
     ```
+
+### Graceful shutdown during rollouts
+
+Deployments are configured to let in-progress work finish before a pod is
+terminated:
+
+- A `preStop` hook calls `POST /drain` (authenticated with the shared API
+  password) to mark the pod as **not ready** via `/healthz/ready`, stopping new
+  work from being scheduled while shutdown begins.
+- The application tracks active jobs and download progress; when draining it
+  polls those states until everything is complete or the grace period expires
+  (configured by `GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS`, default 1800 seconds).
+- The Deployment uses `terminationGracePeriodSeconds: 1800`, `maxUnavailable: 0`,
+  and `maxSurge: 1` so new pods come up before old ones are removed, giving
+  long-running jobs time to finish.
+
+During a rollout you can observe readiness flips at `/healthz/ready`, while
+`/healthz/live` stays healthy unless the process crashes. The shutdown window
+should cover the longest expected job duration to avoid forced termination.
