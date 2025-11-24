@@ -4,8 +4,8 @@ Blob storage structure:
 video/
   {video_id}/
     images/
-      segment_001.webp
-      segment_002.webp
+      segment_001.png
+      segment_002.png
     metadata.json
 
 Where `video_id` is the YouTube video ID for YouTube sources or the first 16
@@ -18,7 +18,6 @@ import os
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from enum import Enum
-from io import BytesIO
 from typing import Any, Optional
 
 from slides_extractor.extract_slides.video_analyzer import (
@@ -28,9 +27,7 @@ from slides_extractor.extract_slides.video_analyzer import (
 )
 
 import cv2
-import numpy as np
 import requests
-from PIL import Image
 from pydantic import BaseModel
 
 
@@ -38,7 +35,6 @@ class JobStatus(str, Enum):
     pending = "pending"
     downloading = "downloading"
     extracting = "extracting"
-    compressing = "compressing"
     uploading = "uploading"
     completed = "completed"
     failed = "failed"
@@ -63,78 +59,17 @@ class ProcessRequest(BaseModel):
     s3_uri: str
 
 
-TEXT_EDGE_DENSITY_THRESHOLD = 0.15
 JOBS: dict[str, dict[str, Any]] = {}
 JOBS_LOCK = asyncio.Lock()
-
-
-def analyze_frame(frame: np.ndarray) -> tuple[bool, float]:
-    """Analyze a frame to estimate whether it contains text-heavy content."""
-
-    grayscale_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-    edges = cv2.Canny(grayscale_frame, threshold1=100, threshold2=200)
-
-    edge_density = float(np.count_nonzero(edges)) / float(edges.size)
-    has_text = edge_density > TEXT_EDGE_DENSITY_THRESHOLD
-
-    return has_text, edge_density
-
-
-def compress_image(
-    frame: np.ndarray, quality: Optional[int] = None
-) -> tuple[bytes, dict[str, Any]]:
-    """Compress a single video frame into WebP without resizing.
-
-    The compression pipeline should preserve the original frame dimensions,
-    lightly denoise the image using OpenCV's ``fastNlMeansDenoisingColored``
-    function, and adapt quality based on whether the content is text-heavy or
-    natural imagery. When ``quality`` is not provided, the implementation
-    should detect text/slides versus natural content and select a WebP quality
-    of 90 for text-forward frames and 85 for photographic frames. The returned
-    metadata should include the selected format, chosen quality, and a boolean
-    indicating whether text-like content was detected.
-
-    Args:
-        frame: Numpy array representing the frame to compress.
-        quality: Optional override for WebP quality; ``None`` triggers adaptive
-            selection based on content detection.
-
-    Returns:
-        Tuple of the compressed WebP bytes and a dictionary containing
-        compression details such as format, quality used, and a ``has_text``
-        flag.
-    """
-    denoised_frame = cv2.fastNlMeansDenoisingColored(
-        frame, h=3, hColor=3, templateWindowSize=7, searchWindowSize=21
-    )
-
-    has_text, edge_density = analyze_frame(denoised_frame)
-    chosen_quality = quality if quality is not None else (90 if has_text else 85)
-
-    rgb_frame = cv2.cvtColor(denoised_frame, cv2.COLOR_BGR2RGB)
-    image = Image.fromarray(rgb_frame)
-
-    buffer = BytesIO()
-    image.save(buffer, format="WEBP", quality=chosen_quality, method=6, lossless=False)
-    buffer.seek(0)
-
-    compression_info = {
-        "format": "WEBP",
-        "quality": chosen_quality,
-        "has_text": has_text,
-        "edge_density": edge_density,
-    }
-
-    return buffer.getvalue(), compression_info
 
 
 def upload_to_vercel_blob(
     data: bytes,
     key: str,
-    content_type: str = "image/webp",
+    content_type: str = "image/png",
     metadata: Optional[dict[str, str]] = None,
 ) -> str:
-    """Upload compressed image bytes to Vercel Blob with metadata.
+    """Upload image bytes to Vercel Blob with metadata.
 
     The upload uses the Vercel Blob REST API with a read/write or write-only
     token provided via ``VERCEL_BLOB_READ_WRITE_TOKEN`` or
@@ -143,9 +78,9 @@ def upload_to_vercel_blob(
     supplied, is serialized to JSON and attached to the blob for traceability.
 
     Args:
-        data: Compressed image bytes to upload.
+        data: Image bytes to upload.
         key: Destination object key within the blob store.
-        content_type: MIME type for the uploaded object; defaults to WebP.
+        content_type: MIME type for the uploaded object; defaults to PNG.
         metadata: Optional dictionary of metadata to persist alongside the
             object.
 
@@ -334,49 +269,27 @@ async def _detect_static_segments(
     return static_segments, total_frames_seen
 
 
-async def _compress_segments(
-    segments: list[Segment], job_id: str
-) -> list[tuple[int, Segment, bytes, dict[str, Any]]]:
-    """Compress representative frames for detected static segments."""
+async def _upload_segments(
+    segments: list[Segment], video_id: str, job_id: str
+) -> list[dict[str, Any]]:
+    """Upload representative frames to Vercel Blob and report progress."""
 
     total_static = len(segments) or 1
-    compressed: list[tuple[int, Segment, bytes, dict[str, Any]]] = []
-
-    for idx, segment in enumerate(segments, start=1):
-        await update_job_status(
-            job_id,
-            JobStatus.compressing,
-            60.0 + ((idx - 1) / total_static) * 20.0,
-            f"Compressing segment {idx}/{len(segments)}",
-            frame_count=segment.frame_count,
-        )
-
-        if segment.representative_frame is None:  # Defensive check
-            continue
-
-        compressed_frame, compression_info = compress_image(
-            segment.representative_frame
-        )
-        compressed.append((idx, segment, compressed_frame, compression_info))
-
-    return compressed
-
-
-async def _upload_segments(
-    compressed_segments: list[tuple[int, Segment, bytes, dict[str, Any]]],
-    video_id: str,
-    job_id: str,
-) -> list[dict[str, Any]]:
-    """Upload compressed segment frames to Vercel Blob and report progress."""
-
-    total_static = len(compressed_segments) or 1
     segment_metadata: list[dict[str, Any]] = []
 
-    for idx, segment, compressed_frame, compression_info in compressed_segments:
-        blob_key = f"video/{video_id}/images/segment_{idx:03d}.webp"
+    for idx, segment in enumerate(segments, start=1):
+        if segment.representative_frame is None:
+            continue
+
+        success, buffer = cv2.imencode(".png", segment.representative_frame)
+        if not success:
+            raise ValueError("Failed to encode frame to PNG")
+
+        blob_key = f"video/{video_id}/images/segment_{idx:03d}.png"
         image_url = upload_to_vercel_blob(
-            compressed_frame,
+            buffer.tobytes(),
             blob_key,
+            content_type="image/png",
             metadata={
                 "video_id": video_id,
                 "segment_id": str(idx),
@@ -401,7 +314,6 @@ async def _upload_segments(
                 "duration": segment.duration,
                 "frame_count": segment.frame_count,
                 "image_url": image_url,
-                "compression_info": compression_info,
             }
         )
 
@@ -411,7 +323,7 @@ async def _upload_segments(
 async def extract_and_process_frames(
     video_path: str, video_id: str, job_id: str
 ) -> list[dict[str, Any]]:
-    """Orchestrate frame extraction, compression, and upload pipeline."""
+    """Orchestrate frame extraction and upload pipeline."""
 
     try:
         static_segments, total_frames_seen = await _detect_static_segments(
@@ -428,8 +340,7 @@ async def extract_and_process_frames(
             )
             return []
 
-        compressed_segments = await _compress_segments(static_segments, job_id)
-        segment_metadata = await _upload_segments(compressed_segments, video_id, job_id)
+        segment_metadata = await _upload_segments(static_segments, video_id, job_id)
 
         await update_job_status(
             job_id,
