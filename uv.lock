@@ -642,7 +642,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.121.3" },
     { name = "imagehash" },
     { name = "numpy" },
-    { name = "opencv-python-headless" },
+    { name = "opencv-python-headless", specifier = ">=4.11.0.86" },
     { name = "pillow" },
     { name = "pydantic" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
