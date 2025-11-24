@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 import time
 from typing import Any, Coroutine, Dict, Optional, TypeVar, TypedDict, cast
 
@@ -24,6 +25,7 @@ class ProgressSnapshot(TypedDict):
 JOB_PROGRESS: Dict[str, ProgressState] = {}
 PROGRESS_LOCK: asyncio.Lock | None = None
 EVENT_LOOP: asyncio.AbstractEventLoop | None = None
+EVENT_LOOP_LOCK = threading.Lock()
 
 T = TypeVar("T")
 
@@ -32,7 +34,9 @@ async def capture_event_loop() -> None:
     """Capture the running event loop for cross-thread progress updates."""
 
     global EVENT_LOOP
-    EVENT_LOOP = asyncio.get_running_loop()
+    loop = asyncio.get_running_loop()
+    with EVENT_LOOP_LOCK:
+        EVENT_LOOP = loop
 
 
 async def _ensure_progress_lock() -> asyncio.Lock:
@@ -92,8 +96,11 @@ def _run_in_event_loop(coro: Coroutine[Any, Any, T], async_use_hint: str) -> T:
 
     _ensure_sync_entrypoint(async_use_hint)
 
-    if EVENT_LOOP and EVENT_LOOP.is_running():
-        future = asyncio.run_coroutine_threadsafe(coro, EVENT_LOOP)
+    with EVENT_LOOP_LOCK:
+        loop = EVENT_LOOP
+
+    if loop and loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
         return future.result()
 
     raise RuntimeError(
