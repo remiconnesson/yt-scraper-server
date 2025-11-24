@@ -345,6 +345,21 @@ async def _upload_segments(
         bgr_frame = cv2.cvtColor(segment.representative_frame, cv2.COLOR_RGB2BGR)
         has_text, text_confidence = text_detector.detect(bgr_frame)
 
+        base_metadata: dict[str, Any] = {
+            "segment_id": idx,
+            "start_time": segment.start_time,
+            "end_time": segment.end_time,
+            "duration": segment.duration,
+            "frame_count": segment.frame_count,
+            "has_text": has_text,
+            "text_confidence": text_confidence,
+            "image_url": None,
+            "frame_id": None,
+            "s3_key": None,
+            "s3_bucket": None,
+            "s3_uri": None,
+        }
+
         if not has_text:
             await update_job_status(
                 video_id,
@@ -352,6 +367,7 @@ async def _upload_segments(
                 60.0 + (idx / total_static) * 40.0,
                 f"Skipped segment {idx}/{total_static} (text confidence {text_confidence:.4f})",
             )
+            segment_metadata.append(base_metadata)
             continue
 
         success, buffer = cv2.imencode(
@@ -397,24 +413,18 @@ async def _upload_segments(
             video_id,
             JobStatus.uploading,
             60.0 + (idx / total_static) * 40.0,
-            f"Uploaded segment {idx}/{total_static}",
+            f"Uploaded segment {idx}/{total_static} (text confidence {text_confidence:.4f})",
             frame_count=segment.frame_count,
         )
 
         segment_metadata.append(
             {
-                "segment_id": idx,
-                "start_time": segment.start_time,
-                "end_time": segment.end_time,
-                "duration": segment.duration,
-                "frame_count": segment.frame_count,
+                **base_metadata,
                 "image_url": image_url,
                 "frame_id": frame_id,
                 "s3_key": s3_key,
                 "s3_bucket": bucket_name,
                 "s3_uri": uri,
-                "has_text": has_text,
-                "text_confidence": text_confidence,
             }
         )
 
