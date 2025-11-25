@@ -69,7 +69,11 @@ from slides_extractor.extract_slides.video_analyzer import (
     Segment,
     SegmentDetector,
 )
-from slides_extractor.extract_slides.text_detection import TextDetector
+from slides_extractor.extract_slides.text_detection import (
+    MIN_LARGEST_BOX_RATIO,
+    MIN_TOTAL_AREA_RATIO,
+    TextDetector,
+)
 from slides_extractor.settings import (
     S3_ACCESS_KEY,
     S3_BUCKET_NAME,
@@ -359,7 +363,11 @@ async def _upload_segments(
     local_output_dir: Optional[str] = None,
     dedup_threshold: int = 5,
 ) -> list[dict[str, Any]]:
-    """Upload representative frames to S3 or save locally and report progress."""
+    """Upload representative frames to S3 or save locally and report progress.
+
+    Segments that fail text-detection heuristics are still uploaded but marked
+    with a ``skip_reason`` in their metadata so clients can filter them out.
+    """
 
     total_static = len(segments) or 1
 
@@ -370,6 +378,7 @@ async def _upload_segments(
 
     for idx, segment in enumerate(segments, start=1):
         if segment.representative_frame is None:
+            skip_reason = "missing_frame"
             base_metadata.append(
                 {
                     "segment_id": idx,
@@ -382,6 +391,7 @@ async def _upload_segments(
                     "text_total_area_ratio": 0.0,
                     "text_largest_area_ratio": 0.0,
                     "text_box_count": 0,
+                    "skip_reason": skip_reason,
                     "image_url": None,
                     "frame_id": None,
                     "s3_key": None,
@@ -389,7 +399,13 @@ async def _upload_segments(
                     "s3_uri": None,
                 }
             )
-            segment_info.append({"skip": True})
+            segment_info.append(
+                {
+                    "frame": None,
+                    "skip_reason": skip_reason,
+                    "duplicate_of": None,
+                }
+            )
             continue
 
         bgr_frame = cv2.cvtColor(segment.representative_frame, cv2.COLOR_RGB2BGR)
@@ -400,6 +416,16 @@ async def _upload_segments(
             largest_ratio,
             boxes,
         ) = text_detector.detect(bgr_frame)
+
+        skip_reason: str | None = None
+        if not has_text:
+            if not boxes:
+                skip_reason = "no_text"
+            elif (
+                total_ratio < MIN_TOTAL_AREA_RATIO
+                and largest_ratio < MIN_LARGEST_BOX_RATIO
+            ):
+                skip_reason = "area"
 
         frame_hash = _compute_frame_hash(segment.representative_frame)
 
@@ -412,33 +438,36 @@ async def _upload_segments(
         if duplicate_of is None:
             hash_records.append((frame_hash, idx))
 
-        base_metadata.append(
-            {
-                "segment_id": idx,
-                "start_time": segment.start_time,
-                "end_time": segment.end_time,
-                "duration": segment.duration,
-                "frame_count": segment.frame_count,
-                "has_text": has_text,
-                "text_confidence": text_confidence,
-                "text_total_area_ratio": total_ratio,
-                "text_largest_area_ratio": largest_ratio,
-                "text_box_count": len(boxes),
-                "image_url": None,
-                "frame_id": None,
-                "s3_key": None,
-                "s3_bucket": None,
-                "s3_uri": None,
-            }
-        )
+        base_meta = {
+            "segment_id": idx,
+            "start_time": segment.start_time,
+            "end_time": segment.end_time,
+            "duration": segment.duration,
+            "frame_count": segment.frame_count,
+            "has_text": has_text,
+            "text_confidence": text_confidence,
+            "text_total_area_ratio": total_ratio,
+            "text_largest_area_ratio": largest_ratio,
+            "text_box_count": len(boxes),
+            "skip_reason": skip_reason,
+            "image_url": None,
+            "frame_id": None,
+            "s3_key": None,
+            "s3_bucket": None,
+            "s3_uri": None,
+        }
+        if duplicate_of is not None:
+            base_meta["duplicate_of"] = duplicate_of
+
+        base_metadata.append(base_meta)
 
         segment_info.append(
             {
-                "skip": not has_text,
                 "frame": bgr_frame,
                 "has_text": has_text,
                 "text_confidence": text_confidence,
                 "text_box_count": len(boxes),
+                "skip_reason": skip_reason,
                 "duplicate_of": duplicate_of,
             }
         )
@@ -447,28 +476,20 @@ async def _upload_segments(
     uploaded: dict[int, dict[str, Any]] = {}
 
     for idx, (segment, info) in enumerate(zip(segments, segment_info), start=1):
-        if info.get("skip"):
-            await update_job_status(
-                video_id,
-                JobStatus.uploading,
-                60.0 + (idx / total_static) * 40.0,
-                f"Skipped segment {idx}/{total_static} (text confidence {info.get('text_confidence', 0.0):.4f}, boxes: {info.get('text_box_count', 0)})",
-            )
-            continue
-
         duplicate_of = info.get("duplicate_of")
-        if duplicate_of is not None:
-            uploaded[idx] = uploaded[duplicate_of]
+        frame = info.get("frame")
+
+        if frame is None:
             await update_job_status(
                 video_id,
                 JobStatus.uploading,
                 60.0 + (idx / total_static) * 40.0,
-                f"Segment {idx}/{total_static} (duplicate of {duplicate_of})",
+                f"Segment {idx}/{total_static} missing representative frame",
             )
             continue
 
         success, buffer = cv2.imencode(
-            ".webp", info["frame"], [cv2.IMWRITE_WEBP_QUALITY, SLIDE_IMAGE_QUALITY]
+            ".webp", frame, [cv2.IMWRITE_WEBP_QUALITY, SLIDE_IMAGE_QUALITY]
         )
         if not success:
             raise ValueError("Failed to encode frame to WebP")
@@ -485,6 +506,11 @@ async def _upload_segments(
             "text_conf": f"{info.get('text_confidence', 0.0):.4f}",
             "text_box_count": str(info.get("text_box_count", 0)),
         }
+
+        if info.get("skip_reason"):
+            metadata["skip_reason"] = str(info["skip_reason"])
+        if duplicate_of is not None:
+            metadata["duplicate_of"] = str(duplicate_of)
 
         base_meta = base_metadata[idx - 1]
         if "text_total_area_ratio" in base_meta:
@@ -541,6 +567,8 @@ async def _upload_segments(
             entry.update(uploaded[idx])
         elif (duplicate_of := segment_info[idx - 1].get("duplicate_of")) is not None:
             entry.update(uploaded.get(duplicate_of, {}))
+        if base_meta.get("skip_reason"):
+            entry["skip_reason"] = base_meta["skip_reason"]
         segment_metadata.append(entry)
 
     return segment_metadata
@@ -591,6 +619,10 @@ def _build_segments_manifest(
                 )
             if "text_box_count" in static_meta:
                 entry["text_box_count"] = static_meta.get("text_box_count")
+            if "skip_reason" in static_meta:
+                entry["skip_reason"] = static_meta.get("skip_reason")
+            if "duplicate_of" in static_meta:
+                entry["duplicate_of"] = static_meta.get("duplicate_of")
 
         manifest_segments.append(entry)
 

@@ -278,10 +278,11 @@ class TestUploadSegments:
     async def test_upload_segments_skips_low_confidence(
         self, mock_upload, mock_imencode, mock_update_status, text_detector
     ):
-        """Frames with low confidence text detection should be skipped."""
+        """Frames without detected text should still upload but be flagged."""
 
         text_detector.detect.return_value = (False, 0.02, 0.0, 0.0, [])
         mock_imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
+        mock_upload.return_value = "s3://slides-extractor/video/video-id/static_frames/static_frame_000001.webp"
 
         frame = np.zeros((10, 10, 3), dtype=np.uint8)
         segments = [
@@ -296,6 +297,7 @@ class TestUploadSegments:
 
         metadata = await _upload_segments(segments, "video-id", text_detector)
 
+        expected_key = "video/video-id/static_frames/static_frame_000001.webp"
         assert metadata == [
             {
                 "segment_id": 1,
@@ -308,14 +310,15 @@ class TestUploadSegments:
                 "text_total_area_ratio": 0.0,
                 "text_largest_area_ratio": 0.0,
                 "text_box_count": 0,
-                "image_url": None,
-                "frame_id": None,
-                "s3_key": None,
-                "s3_bucket": None,
-                "s3_uri": None,
+                "skip_reason": "no_text",
+                "image_url": "s3://slides-extractor/" + expected_key,
+                "frame_id": "static_frame_000001.webp",
+                "s3_key": expected_key,
+                "s3_bucket": "slides-extractor",
+                "s3_uri": "s3://slides-extractor/" + expected_key,
             }
         ]
-        mock_upload.assert_not_called()
+        mock_upload.assert_called_once()
         mock_update_status.assert_awaited()
 
     @pytest.mark.asyncio
