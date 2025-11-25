@@ -22,7 +22,7 @@ spec:
       terminationGracePeriodSeconds: 1800
       containers:
       - name: slides-extractor
-        image: registry.localhost:5000/slides-extractor:v3.3.1
+        image: registry.localhost:5000/slides-extractor:v4.0.0
         ports:
         - containerPort: 8000
         lifecycle:
