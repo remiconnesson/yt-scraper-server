@@ -66,7 +66,7 @@ def save_analysis_results(result: AnalysisResult, output_dir: str) -> None:
         # Format filename
         start_formatted = format_timestamp_for_filename(segment.start_time)
         end_formatted = format_timestamp_for_filename(segment.end_time)
-        filename = f"segment_{idx:03d}_{start_formatted}_to_{end_formatted}.png"
+        filename = f"segment_{idx:03d}_{start_formatted}_to_{end_formatted}_first.png"
 
         # Convert RGB back to BGR for OpenCV
         bgr_frame = cv2.cvtColor(segment.representative_frame, cv2.COLOR_RGB2BGR)
@@ -78,6 +78,16 @@ def save_analysis_results(result: AnalysisResult, output_dir: str) -> None:
 
         # Store relative path for markdown
         image_paths[idx] = f"static/{filename}"
+
+        if segment.last_frame is not None:
+            bgr_frame_last = cv2.cvtColor(segment.last_frame, cv2.COLOR_RGB2BGR)
+            filename_last = (
+                f"segment_{idx:03d}_{start_formatted}_to_{end_formatted}_last.png"
+            )
+            image_path_last = static_dir / filename_last
+            success_last = cv2.imwrite(str(image_path_last), bgr_frame_last)
+            if not success_last:
+                raise OSError(f"Failed to write image file: {image_path_last}")
 
     # Generate markdown report
     report_path = output_path / "report.md"
