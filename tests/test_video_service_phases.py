@@ -156,8 +156,14 @@ class TestUploadSegments:
         assert metadata[0]["first_frame"]["text_confidence"] == pytest.approx(0.5)
         assert metadata[0]["first_frame"]["frame_id"] == "static_frame_000001_first.webp"
         assert metadata[0]["last_frame"]["frame_id"] == "static_frame_000001_last.webp"
-        assert metadata[0]["last_frame"]["duplicate_of"] == 1
-        assert metadata[1]["first_frame"]["duplicate_of"] == 1
+        assert metadata[0]["last_frame"]["duplicate_of"] == {
+            "segment_id": 1,
+            "frame_position": "first",
+        }
+        assert metadata[1]["first_frame"]["duplicate_of"] == {
+            "segment_id": 1,
+            "frame_position": "first",
+        }
         assert mock_upload.call_count == 4
         assert mock_imencode.call_count == 4
         assert mock_imencode.call_args[0][0] == ".webp"

@@ -366,7 +366,7 @@ async def _upload_segments(
     """Upload representative and trailing frames to storage and report progress."""
 
     total_static = len(segments) or 1
-    hash_records: list[tuple[imagehash.ImageHash, int]] = []
+    hash_records: list[tuple[imagehash.ImageHash, int, str]] = []
     segment_metadata: list[dict[str, Any]] = []
 
     for idx, segment in enumerate(segments, start=1):
@@ -432,13 +432,13 @@ async def _upload_segments(
                     skip_reason = "area"
 
             frame_hash = _compute_frame_hash(frame_img)
-            duplicate_of = None
-            for existing_hash, origin_idx in hash_records:
+            duplicate_of: tuple[int, str] | None = None
+            for existing_hash, origin_idx, origin_position in hash_records:
                 if frame_hash - existing_hash <= dedup_threshold:
-                    duplicate_of = origin_idx
+                    duplicate_of = (origin_idx, origin_position)
                     break
 
-            hash_records.append((frame_hash, idx))
+            hash_records.append((frame_hash, idx, position))
 
             frame_id = f"static_frame_{idx:06d}_{position}.webp"
             s3_key = f"video/{video_id}/static_frames/{frame_id}"
@@ -457,7 +457,8 @@ async def _upload_segments(
             if skip_reason:
                 metadata["skip_reason"] = skip_reason
             if duplicate_of is not None:
-                metadata["duplicate_of"] = str(duplicate_of)
+                origin_idx, origin_position = duplicate_of
+                metadata["duplicate_of"] = f"{origin_idx}:{origin_position}"
             metadata["text_total_area_ratio"] = f"{total_ratio:.6f}"
             metadata["text_largest_area_ratio"] = f"{largest_ratio:.6f}"
 
@@ -496,7 +497,12 @@ async def _upload_segments(
                     "text_total_area_ratio": total_ratio,
                     "text_largest_area_ratio": largest_ratio,
                     "text_box_count": len(boxes),
-                    "duplicate_of": duplicate_of,
+                    "duplicate_of": {
+                        "segment_id": duplicate_of[0],
+                        "frame_position": duplicate_of[1],
+                    }
+                    if duplicate_of is not None
+                    else None,
                     "skip_reason": skip_reason,
                     "s3_key": s3_key,
                     "s3_bucket": bucket_name,
