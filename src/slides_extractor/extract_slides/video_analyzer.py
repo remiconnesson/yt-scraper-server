@@ -52,6 +52,7 @@ class Segment:
         end_time: End timestamp in seconds
         frames: List of frame indices in this segment
         representative_frame: Representative image for static segments (None for moving)
+        last_frame: The final image of the static segment (used for build-up detection)
     """
 
     type: str  # 'static' or 'moving'
@@ -59,6 +60,7 @@ class Segment:
     end_time: float = 0.0
     frames: list[int] = field(default_factory=list)
     representative_frame: Optional[np.ndarray] = None
+    last_frame: Optional[np.ndarray] = None
 
     @property
     def duration(self) -> float:
@@ -377,6 +379,7 @@ class SegmentDetector:
         if is_similar:
             self.current_seg.frames.append(frame.index)  # type: ignore[union-attr]
             self.current_seg.end_time = frame.timestamp  # type: ignore[union-attr]
+            self.current_seg.last_frame = frame.image  # type: ignore[union-attr]
         else:
             # Transition: Static -> Moving
             self._commit_current_segment()
@@ -424,6 +427,7 @@ class SegmentDetector:
                     for buf_frame in self.tentative_static[1:]:
                         self.current_seg.frames.append(buf_frame.index)  # type: ignore[union-attr]
                         self.current_seg.end_time = buf_frame.timestamp  # type: ignore[union-attr]
+                        self.current_seg.last_frame = buf_frame.image  # type: ignore[union-attr]
 
                     # Clear buffer
                     self.tentative_static = []
@@ -471,6 +475,7 @@ class SegmentDetector:
         self.current_seg.frames = [frame.index]
         if type_ == "static":
             self.current_seg.representative_frame = frame.image
+            self.current_seg.last_frame = frame.image
             self.anchor_hash = frame.hashes
         else:
             self.anchor_hash = None
@@ -485,6 +490,8 @@ class SegmentDetector:
             if self.segments and self.segments[-1].type == self.current_seg.type:
                 self.segments[-1].frames.extend(self.current_seg.frames)
                 self.segments[-1].end_time = self.current_seg.end_time
+                if self.current_seg.type == "static":
+                    self.segments[-1].last_frame = self.current_seg.last_frame
             else:
                 self.segments.append(self.current_seg)
 

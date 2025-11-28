@@ -121,9 +121,7 @@ class TestUploadSegments:
         self, mock_upload, mock_imencode, text_detector
     ):
         """Test successful upload of segment frames."""
-        mock_upload.return_value = (
-            "https://s3-endpoint/bucket/video/abc/images/segment_001.webp"
-        )
+        mock_upload.return_value = "https://s3-endpoint/bucket/video/abc/images/frame.webp"
         mock_imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
 
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
@@ -133,6 +131,7 @@ class TestUploadSegments:
                 start_time=0.0,
                 end_time=5.0,
                 representative_frame=frame,
+                last_frame=frame,
                 frames=[0, 1, 2],
             ),
             Segment(
@@ -140,6 +139,7 @@ class TestUploadSegments:
                 start_time=10.0,
                 end_time=15.0,
                 representative_frame=frame,
+                last_frame=frame,
                 frames=[10, 11, 12],
             ),
         ]
@@ -152,32 +152,21 @@ class TestUploadSegments:
         assert metadata[0]["end_time"] == 5.0
         assert metadata[0]["duration"] == 5.0
         assert metadata[0]["frame_count"] == 3
-        assert metadata[0]["has_text"] is True
-        assert metadata[0]["text_confidence"] == pytest.approx(0.5)
-        assert (
-            metadata[0]["image_url"]
-            == "https://s3-endpoint/bucket/video/abc/images/segment_001.webp"
-        )
-        assert (
-            metadata[0]["s3_key"]
-            == "video/video-abc/static_frames/static_frame_000001.webp"
-        )
-        assert metadata[0]["s3_bucket"] is not None
-        assert (
-            metadata[0]["s3_uri"]
-            == f"s3://{metadata[0]['s3_bucket']}/video/video-abc/static_frames/static_frame_000001.webp"
-        )
-        assert metadata[1]["image_url"] == metadata[0]["image_url"]
-        assert metadata[1]["s3_uri"] == metadata[0]["s3_uri"]
-        assert mock_upload.call_count == 1
-        assert mock_imencode.call_count == 1
+        assert metadata[0]["first_frame"]["has_text"] is True
+        assert metadata[0]["first_frame"]["text_confidence"] == pytest.approx(0.5)
+        assert metadata[0]["first_frame"]["frame_id"] == "static_frame_000001_first.webp"
+        assert metadata[0]["last_frame"]["frame_id"] == "static_frame_000001_last.webp"
+        assert metadata[0]["last_frame"]["duplicate_of"] == 1
+        assert metadata[1]["first_frame"]["duplicate_of"] == 1
+        assert mock_upload.call_count == 4
+        assert mock_imencode.call_count == 4
         assert mock_imencode.call_args[0][0] == ".webp"
         assert mock_imencode.call_args[0][2] == [
             cv2.IMWRITE_WEBP_QUALITY,
             SLIDE_IMAGE_QUALITY,
         ]
         assert mock_upload.call_args.kwargs.get("content_type") == "image/webp"
-        assert text_detector.detect.call_count == 2
+        assert text_detector.detect.call_count == 4
 
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.cv2.imencode")
@@ -199,13 +188,14 @@ class TestUploadSegments:
                 start_time=0.0,
                 end_time=1.0,
                 representative_frame=frame,
+                last_frame=frame,
                 frames=[0],
             ),
         ]
 
         await _upload_segments(segments, "video-abc", text_detector)
 
-        called_frame = mock_imencode.call_args[0][1]
+        called_frame = mock_imencode.call_args_list[0][0][1]
         assert called_frame.shape == frame.shape
         assert np.array_equal(called_frame[0, 0], np.array([0, 0, 255], dtype=np.uint8))
 
@@ -226,6 +216,7 @@ class TestUploadSegments:
                 start_time=0.0,
                 end_time=5.0,
                 representative_frame=frame,
+                last_frame=frame,
                 frames=[0],
             ),
         ]
@@ -233,11 +224,11 @@ class TestUploadSegments:
         await _upload_segments(segments, "my-video-id", text_detector)
 
         # Verify blob key format
-        call_args = mock_upload.call_args
-        assert (
-            call_args[0][1]
-            == "video/my-video-id/static_frames/static_frame_000001.webp"
-        )
+        keys = {call_args[0][1] for call_args in mock_upload.call_args_list}
+        assert keys == {
+            "video/my-video-id/static_frames/static_frame_000001_first.webp",
+            "video/my-video-id/static_frames/static_frame_000001_last.webp",
+        }
 
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.cv2.imencode")
@@ -256,13 +247,14 @@ class TestUploadSegments:
                 start_time=1.5,
                 end_time=6.5,
                 representative_frame=frame,
+                last_frame=frame,
                 frames=[1],
             ),
         ]
 
         await _upload_segments(segments, "video-id", text_detector)
 
-        call_args = mock_upload.call_args
+        call_args = mock_upload.call_args_list[0]
         metadata = call_args[1]["metadata"]
         assert metadata["video_id"] == "video-id"
         assert metadata["segment_id"] == "1"
@@ -270,6 +262,8 @@ class TestUploadSegments:
         assert metadata["end_time"] == "6.5"
         assert metadata["has_text"] == "true"
         assert metadata["text_conf"] == "0.5000"
+        assert metadata["frame_position"] == "first"
+        assert "text_total_area_ratio" in metadata
 
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.update_job_status", new_callable=AsyncMock)
@@ -280,9 +274,11 @@ class TestUploadSegments:
     ):
         """Frames without detected text should still upload but be flagged."""
 
+        expected_key = "video/video-id/static_frames/static_frame_000001_first.webp"
+        expected_url = f"s3://slides-extractor/{expected_key}"
         text_detector.detect.return_value = (False, 0.02, 0.0, 0.0, [])
         mock_imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
-        mock_upload.return_value = "s3://slides-extractor/video/video-id/static_frames/static_frame_000001.webp"
+        mock_upload.return_value = expected_url
 
         frame = np.zeros((10, 10, 3), dtype=np.uint8)
         segments = [
@@ -297,7 +293,6 @@ class TestUploadSegments:
 
         metadata = await _upload_segments(segments, "video-id", text_detector)
 
-        expected_key = "video/video-id/static_frames/static_frame_000001.webp"
         assert metadata == [
             {
                 "segment_id": 1,
@@ -305,17 +300,34 @@ class TestUploadSegments:
                 "end_time": 1.0,
                 "duration": 1.0,
                 "frame_count": 1,
-                "has_text": False,
-                "text_confidence": pytest.approx(0.02),
-                "text_total_area_ratio": 0.0,
-                "text_largest_area_ratio": 0.0,
-                "text_box_count": 0,
-                "skip_reason": "no_text",
-                "image_url": "s3://slides-extractor/" + expected_key,
-                "frame_id": "static_frame_000001.webp",
-                "s3_key": expected_key,
-                "s3_bucket": "slides-extractor",
-                "s3_uri": "s3://slides-extractor/" + expected_key,
+                "first_frame": {
+                    "frame_id": "static_frame_000001_first.webp",
+                    "has_text": False,
+                    "text_confidence": pytest.approx(0.02),
+                    "text_total_area_ratio": 0.0,
+                    "text_largest_area_ratio": 0.0,
+                    "text_box_count": 0,
+                    "duplicate_of": None,
+                    "skip_reason": "no_text",
+                    "s3_key": expected_key,
+                    "s3_bucket": "slides-extractor",
+                    "s3_uri": "s3://slides-extractor/" + expected_key,
+                    "url": expected_url,
+                },
+                "last_frame": {
+                    "frame_id": None,
+                    "has_text": False,
+                    "text_confidence": 0.0,
+                    "text_total_area_ratio": 0.0,
+                    "text_largest_area_ratio": 0.0,
+                    "text_box_count": 0,
+                    "duplicate_of": None,
+                    "skip_reason": "missing_frame",
+                    "s3_key": None,
+                    "s3_bucket": None,
+                    "s3_uri": None,
+                    "url": None,
+                },
             }
         ]
         mock_upload.assert_called_once()
@@ -372,16 +384,31 @@ class TestExtractAndProcessFramesIntegration:
         """Test the full orchestration of detection and upload phases."""
         # Mock each phase
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
-        segments = [Segment(type="static", representative_frame=frame, frames=[1, 2])]
+        segments = [
+            Segment(
+                type="static",
+                representative_frame=frame,
+                last_frame=frame,
+                frames=[1, 2],
+            )
+        ]
         mock_detect.return_value = (segments, segments, 100)
 
         metadata = [
             {
                 "segment_id": 1,
-                "image_url": "https://s3-endpoint/bucket/url",
-                "s3_key": "key",
-                "s3_bucket": "bucket",
-                "s3_uri": "s3://bucket/key",
+                "start_time": 0.0,
+                "end_time": 0.0,
+                "duration": 0.0,
+                "frame_count": 2,
+                "first_frame": {
+                    "frame_id": "static_frame_000001_first.webp",
+                    "url": "https://s3-endpoint/bucket/url",
+                },
+                "last_frame": {
+                    "frame_id": "static_frame_000001_last.webp",
+                    "url": "https://s3-endpoint/bucket/url",
+                },
             }
         ]
         mock_upload.return_value = metadata
@@ -467,15 +494,26 @@ class TestBuildSegmentsManifest:
         # Create metadata matching the static segment
         static_metadata = [
             {
-                "frame_id": "frame_001.png",
-                "image_url": "https://example.com/img.png",
-                "s3_key": "video/test-video/static_frames/frame_001.png",
-                "s3_bucket": "my-bucket",
-                "s3_uri": "s3://my-bucket/video/test-video/static_frames/frame_001.png",
+                "first_frame": {
+                    "frame_id": "frame_001_first.png",
+                    "url": "https://example.com/img.png",
+                    "s3_key": "video/test-video/static_frames/frame_001_first.png",
+                    "s3_bucket": "my-bucket",
+                    "s3_uri": "s3://my-bucket/video/test-video/static_frames/frame_001_first.png",
+                },
+                "last_frame": {
+                    "frame_id": "frame_001_last.png",
+                    "url": "https://example.com/img.png",
+                    "s3_key": "video/test-video/static_frames/frame_001_last.png",
+                    "s3_bucket": "my-bucket",
+                    "s3_uri": "s3://my-bucket/video/test-video/static_frames/frame_001_last.png",
+                },
             }
         ]
 
         manifest = _build_segments_manifest(video_id, segments, static_metadata)
+
+        assert "updated_at" in manifest[video_id]
 
         # Verify structure
         assert video_id in manifest
@@ -488,14 +526,9 @@ class TestBuildSegmentsManifest:
         # Check static segment
         static_seg = manifest_segments[1]
         assert static_seg["kind"] == "static"
-        assert static_seg["frame_id"] == "frame_001.png"
+        assert static_seg["first_frame"]["frame_id"] == "frame_001_first.png"
+        assert static_seg["last_frame"]["frame_id"] == "frame_001_last.png"
         assert static_seg["url"] == "https://example.com/img.png"
-        assert static_seg["s3_key"] == "video/test-video/static_frames/frame_001.png"
-        assert static_seg["s3_bucket"] == "my-bucket"
-        assert (
-            static_seg["s3_uri"]
-            == "s3://my-bucket/video/test-video/static_frames/frame_001.png"
-        )
 
     def test_manifest_exact_structure_with_multiple_static_and_moving_segments(self):
         """Ensure manifest ordering matches segments and static metadata 1:1."""
@@ -510,18 +543,36 @@ class TestBuildSegmentsManifest:
 
         static_metadata = [
             {
-                "frame_id": "static_frame_000001.webp",
-                "image_url": "https://example.com/static_frame_000001.webp",
-                "s3_key": "video/vid-123/static_frames/static_frame_000001.webp",
-                "s3_bucket": "bucket-1",
-                "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000001.webp",
+                "first_frame": {
+                    "frame_id": "static_frame_000001_first.webp",
+                    "url": "https://example.com/static_frame_000001.webp",
+                    "s3_key": "video/vid-123/static_frames/static_frame_000001_first.webp",
+                    "s3_bucket": "bucket-1",
+                    "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000001_first.webp",
+                },
+                "last_frame": {
+                    "frame_id": "static_frame_000001_last.webp",
+                    "url": "https://example.com/static_frame_000001.webp",
+                    "s3_key": "video/vid-123/static_frames/static_frame_000001_last.webp",
+                    "s3_bucket": "bucket-1",
+                    "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000001_last.webp",
+                },
             },
             {
-                "frame_id": "static_frame_000002.webp",
-                "image_url": "https://example.com/static_frame_000002.webp",
-                "s3_key": "video/vid-123/static_frames/static_frame_000002.webp",
-                "s3_bucket": "bucket-1",
-                "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000002.webp",
+                "first_frame": {
+                    "frame_id": "static_frame_000002_first.webp",
+                    "url": "https://example.com/static_frame_000002.webp",
+                    "s3_key": "video/vid-123/static_frames/static_frame_000002_first.webp",
+                    "s3_bucket": "bucket-1",
+                    "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000002_first.webp",
+                },
+                "last_frame": {
+                    "frame_id": "static_frame_000002_last.webp",
+                    "url": "https://example.com/static_frame_000002.webp",
+                    "s3_key": "video/vid-123/static_frames/static_frame_000002_last.webp",
+                    "s3_bucket": "bucket-1",
+                    "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000002_last.webp",
+                },
             },
         ]
 
@@ -530,33 +581,73 @@ class TestBuildSegmentsManifest:
         expected = {
             video_id: {
                 "segments": [
-                    {"kind": "moving", "start_time": 0.0, "end_time": 1.0},
+                    {
+                        "kind": "moving",
+                        "start_time": 0.0,
+                        "end_time": 1.0,
+                        "duration": 1.0,
+                    },
                     {
                         "kind": "static",
                         "start_time": 1.0,
                         "end_time": 2.0,
-                        "frame_id": "static_frame_000001.webp",
+                        "duration": 1.0,
+                        "first_frame": {
+                            "frame_id": "static_frame_000001_first.webp",
+                            "url": "https://example.com/static_frame_000001.webp",
+                            "s3_key": "video/vid-123/static_frames/static_frame_000001_first.webp",
+                            "s3_bucket": "bucket-1",
+                            "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000001_first.webp",
+                        },
+                        "last_frame": {
+                            "frame_id": "static_frame_000001_last.webp",
+                            "url": "https://example.com/static_frame_000001.webp",
+                            "s3_key": "video/vid-123/static_frames/static_frame_000001_last.webp",
+                            "s3_bucket": "bucket-1",
+                            "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000001_last.webp",
+                        },
                         "url": "https://example.com/static_frame_000001.webp",
-                        "s3_key": "video/vid-123/static_frames/static_frame_000001.webp",
-                        "s3_bucket": "bucket-1",
-                        "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000001.webp",
+                        "has_text": None,
+                        "text_confidence": None,
                     },
-                    {"kind": "moving", "start_time": 2.0, "end_time": 3.0},
+                    {
+                        "kind": "moving",
+                        "start_time": 2.0,
+                        "end_time": 3.0,
+                        "duration": 1.0,
+                    },
                     {
                         "kind": "static",
                         "start_time": 3.0,
                         "end_time": 4.0,
-                        "frame_id": "static_frame_000002.webp",
+                        "duration": 1.0,
+                        "first_frame": {
+                            "frame_id": "static_frame_000002_first.webp",
+                            "url": "https://example.com/static_frame_000002.webp",
+                            "s3_key": "video/vid-123/static_frames/static_frame_000002_first.webp",
+                            "s3_bucket": "bucket-1",
+                            "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000002_first.webp",
+                        },
+                        "last_frame": {
+                            "frame_id": "static_frame_000002_last.webp",
+                            "url": "https://example.com/static_frame_000002.webp",
+                            "s3_key": "video/vid-123/static_frames/static_frame_000002_last.webp",
+                            "s3_bucket": "bucket-1",
+                            "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000002_last.webp",
+                        },
                         "url": "https://example.com/static_frame_000002.webp",
-                        "s3_key": "video/vid-123/static_frames/static_frame_000002.webp",
-                        "s3_bucket": "bucket-1",
-                        "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000002.webp",
+                        "has_text": None,
+                        "text_confidence": None,
                     },
                 ]
             }
         }
 
-        assert manifest == expected
+        assert "updated_at" in manifest[video_id]
+        manifest_copy = {video_id: dict(manifest[video_id])}
+        manifest_copy[video_id].pop("updated_at", None)
+
+        assert manifest_copy == expected
 
     def test_manifest_includes_text_confidence_for_all_static_segments(self):
         """Text confidence and flags are present even when no frame is uploaded."""
@@ -569,13 +660,22 @@ class TestBuildSegmentsManifest:
 
         static_metadata = [
             {
-                "frame_id": None,
-                "image_url": None,
-                "s3_key": None,
-                "s3_bucket": None,
-                "s3_uri": None,
-                "has_text": False,
-                "text_confidence": 0.1234,
+                "first_frame": {
+                    "frame_id": None,
+                    "url": None,
+                    "s3_key": None,
+                    "s3_bucket": None,
+                    "s3_uri": None,
+                    "has_text": False,
+                    "text_confidence": 0.1234,
+                },
+                "last_frame": {
+                    "frame_id": None,
+                    "url": None,
+                    "s3_key": None,
+                    "s3_bucket": None,
+                    "s3_uri": None,
+                },
             }
         ]
 
@@ -585,7 +685,7 @@ class TestBuildSegmentsManifest:
         assert static_entry["kind"] == "static"
         assert static_entry["has_text"] is False
         assert static_entry["text_confidence"] == pytest.approx(0.1234)
-        assert static_entry.get("frame_id") is None
+        assert static_entry["first_frame"]["frame_id"] is None
 
     def test_manifest_omits_text_boxes(self):
         """Uploaded manifest should not include raw text box coordinates."""
@@ -594,12 +694,21 @@ class TestBuildSegmentsManifest:
         segments = [Segment(type="static", start_time=0.0, end_time=1.0, frames=[])]
         static_metadata = [
             {
-                "frame_id": "static_frame_000001.webp",
-                "image_url": "https://example.com/static_frame_000001.webp",
-                "s3_key": "video/vid-789/static_frames/static_frame_000001.webp",
-                "s3_bucket": "bucket-2",
-                "s3_uri": "s3://bucket-2/video/vid-789/static_frames/static_frame_000001.webp",
-                "text_boxes": [[1152, 72, 1271, 145]],
+                "first_frame": {
+                    "frame_id": "static_frame_000001_first.webp",
+                    "url": "https://example.com/static_frame_000001.webp",
+                    "s3_key": "video/vid-789/static_frames/static_frame_000001_first.webp",
+                    "s3_bucket": "bucket-2",
+                    "s3_uri": "s3://bucket-2/video/vid-789/static_frames/static_frame_000001_first.webp",
+                    "text_boxes": [[1152, 72, 1271, 145]],
+                },
+                "last_frame": {
+                    "frame_id": "static_frame_000001_last.webp",
+                    "url": "https://example.com/static_frame_000001.webp",
+                    "s3_key": "video/vid-789/static_frames/static_frame_000001_last.webp",
+                    "s3_bucket": "bucket-2",
+                    "s3_uri": "s3://bucket-2/video/vid-789/static_frames/static_frame_000001_last.webp",
+                },
             }
         ]
 
@@ -651,11 +760,20 @@ class TestExtractAndProcessFramesManifestUpload:
                 "end_time": 1.0,
                 "duration": 1.0,
                 "frame_count": 1,
-                "image_url": "https://example.com/frame.webp",
-                "frame_id": "static_frame_000001.webp",
-                "s3_key": "video/vid/static_frames/static_frame_000001.webp",
-                "s3_bucket": "bucket",
-                "s3_uri": "s3://bucket/video/vid/static_frames/static_frame_000001.webp",
+                "first_frame": {
+                    "frame_id": "static_frame_000001_first.webp",
+                    "url": "https://example.com/frame.webp",
+                    "s3_key": "video/vid/static_frames/static_frame_000001_first.webp",
+                    "s3_bucket": "bucket",
+                    "s3_uri": "s3://bucket/video/vid/static_frames/static_frame_000001_first.webp",
+                },
+                "last_frame": {
+                    "frame_id": "static_frame_000001_last.webp",
+                    "url": "https://example.com/frame.webp",
+                    "s3_key": "video/vid/static_frames/static_frame_000001_last.webp",
+                    "s3_bucket": "bucket",
+                    "s3_uri": "s3://bucket/video/vid/static_frames/static_frame_000001_last.webp",
+                },
             }
         ]
 

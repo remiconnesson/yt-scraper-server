@@ -166,6 +166,8 @@ def test_single_static_slide_is_detected_as_one_segment() -> None:
     assert len(detector.segments) == 1
     assert detector.segments[0].type == "static"
     assert detector.segments[0].frames == [0, 1, 2, 3, 4]
+    assert detector.segments[0].last_frame is not None
+    assert np.array_equal(detector.segments[0].last_frame, slide_frames[-1].image)
 
 
 def test_continuous_motion_is_classified_as_moving_segment() -> None:

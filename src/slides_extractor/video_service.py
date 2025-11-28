@@ -363,213 +363,151 @@ async def _upload_segments(
     local_output_dir: Optional[str] = None,
     dedup_threshold: int = 5,
 ) -> list[dict[str, Any]]:
-    """Upload representative frames to S3 or save locally and report progress.
-
-    Segments that fail text-detection heuristics are still uploaded but marked
-    with a ``skip_reason`` in their metadata so clients can filter them out.
-    """
+    """Upload representative and trailing frames to storage and report progress."""
 
     total_static = len(segments) or 1
-
-    # Phase 1: collect hashes and text detection results
-    segment_info: list[dict[str, Any]] = []
-    base_metadata: list[dict[str, Any]] = []
     hash_records: list[tuple[imagehash.ImageHash, int]] = []
+    segment_metadata: list[dict[str, Any]] = []
 
     for idx, segment in enumerate(segments, start=1):
-        if segment.representative_frame is None:
-            skip_reason = "missing_frame"
-            base_metadata.append(
-                {
-                    "segment_id": idx,
-                    "start_time": segment.start_time,
-                    "end_time": segment.end_time,
-                    "duration": segment.duration,
-                    "frame_count": segment.frame_count,
-                    "has_text": False,
-                    "text_confidence": 0.0,
-                    "text_total_area_ratio": 0.0,
-                    "text_largest_area_ratio": 0.0,
-                    "text_box_count": 0,
-                    "skip_reason": skip_reason,
-                    "image_url": None,
-                    "frame_id": None,
-                    "s3_key": None,
-                    "s3_bucket": None,
-                    "s3_uri": None,
-                }
-            )
-            segment_info.append(
-                {
-                    "frame": None,
-                    "skip_reason": skip_reason,
-                    "duplicate_of": None,
-                }
-            )
-            continue
+        progress = 60.0 + ((idx - 1) / total_static) * 35.0
+        await update_job_status(
+            video_id,
+            JobStatus.uploading,
+            progress=progress,
+            message=f"Processing slide {idx}/{total_static}",
+        )
 
-        bgr_frame = cv2.cvtColor(segment.representative_frame, cv2.COLOR_RGB2BGR)
-        (
-            has_text,
-            text_confidence,
-            total_ratio,
-            largest_ratio,
-            boxes,
-        ) = text_detector.detect(bgr_frame)
-
-        skip_reason: str | None = None
-        if not has_text:
-            if not boxes:
-                skip_reason = "no_text"
-            elif (
-                total_ratio < MIN_TOTAL_AREA_RATIO
-                and largest_ratio < MIN_LARGEST_BOX_RATIO
-            ):
-                skip_reason = "area"
-
-        frame_hash = _compute_frame_hash(segment.representative_frame)
-
-        duplicate_of = None
-        for existing_hash, first_idx in hash_records:
-            if frame_hash - existing_hash <= dedup_threshold:
-                duplicate_of = first_idx
-                break
-
-        if duplicate_of is None:
-            hash_records.append((frame_hash, idx))
-
-        base_meta = {
+        current_seg_meta: dict[str, Any] = {
             "segment_id": idx,
             "start_time": segment.start_time,
             "end_time": segment.end_time,
             "duration": segment.duration,
             "frame_count": segment.frame_count,
-            "has_text": has_text,
-            "text_confidence": text_confidence,
-            "text_total_area_ratio": total_ratio,
-            "text_largest_area_ratio": largest_ratio,
-            "text_box_count": len(boxes),
-            "skip_reason": skip_reason,
-            "image_url": None,
-            "frame_id": None,
-            "s3_key": None,
-            "s3_bucket": None,
-            "s3_uri": None,
         }
-        if duplicate_of is not None:
-            base_meta["duplicate_of"] = duplicate_of
 
-        base_metadata.append(base_meta)
+        frames_to_process = [
+            ("first", segment.representative_frame),
+            ("last", segment.last_frame),
+        ]
 
-        segment_info.append(
-            {
-                "frame": bgr_frame,
-                "has_text": has_text,
-                "text_confidence": text_confidence,
-                "text_box_count": len(boxes),
-                "skip_reason": skip_reason,
-                "duplicate_of": duplicate_of,
+        for position, frame_img in frames_to_process:
+            image_meta: dict[str, Any] = {
+                "frame_id": None,
+                "has_text": False,
+                "text_confidence": 0.0,
+                "text_total_area_ratio": 0.0,
+                "text_largest_area_ratio": 0.0,
+                "text_box_count": 0,
+                "duplicate_of": None,
+                "skip_reason": None,
+                "s3_key": None,
+                "s3_bucket": None,
+                "s3_uri": None,
+                "url": None,
             }
-        )
 
-    # Phase 2: upload only unique frames, reuse metadata for duplicates
-    uploaded: dict[int, dict[str, Any]] = {}
+            if frame_img is None:
+                image_meta["skip_reason"] = "missing_frame"
+                current_seg_meta[f"{position}_frame"] = image_meta
+                continue
 
-    for idx, (segment, info) in enumerate(zip(segments, segment_info), start=1):
-        duplicate_of = info.get("duplicate_of")
-        frame = info.get("frame")
+            bgr_frame = cv2.cvtColor(frame_img, cv2.COLOR_RGB2BGR)
+            (
+                has_text,
+                text_confidence,
+                total_ratio,
+                largest_ratio,
+                boxes,
+            ) = text_detector.detect(bgr_frame)
 
-        if frame is None:
-            await update_job_status(
-                video_id,
-                JobStatus.uploading,
-                60.0 + (idx / total_static) * 40.0,
-                f"Segment {idx}/{total_static} missing representative frame",
+            skip_reason: str | None = None
+            if not has_text:
+                if not boxes:
+                    skip_reason = "no_text"
+                elif (
+                    total_ratio < MIN_TOTAL_AREA_RATIO
+                    and largest_ratio < MIN_LARGEST_BOX_RATIO
+                ):
+                    skip_reason = "area"
+
+            frame_hash = _compute_frame_hash(frame_img)
+            duplicate_of = None
+            for existing_hash, origin_idx in hash_records:
+                if frame_hash - existing_hash <= dedup_threshold:
+                    duplicate_of = origin_idx
+                    break
+
+            hash_records.append((frame_hash, idx))
+
+            frame_id = f"static_frame_{idx:06d}_{position}.webp"
+            s3_key = f"video/{video_id}/static_frames/{frame_id}"
+
+            metadata = {
+                "video_id": video_id,
+                "segment_id": str(idx),
+                "frame_position": position,
+                "start_time": str(segment.start_time),
+                "end_time": str(segment.end_time),
+                "has_text": str(has_text).lower(),
+                "text_conf": f"{text_confidence:.4f}",
+                "text_box_count": str(len(boxes)),
+            }
+
+            if skip_reason:
+                metadata["skip_reason"] = skip_reason
+            if duplicate_of is not None:
+                metadata["duplicate_of"] = str(duplicate_of)
+            metadata["text_total_area_ratio"] = f"{total_ratio:.6f}"
+            metadata["text_largest_area_ratio"] = f"{largest_ratio:.6f}"
+
+            success, buffer = cv2.imencode(
+                ".webp", bgr_frame, [cv2.IMWRITE_WEBP_QUALITY, SLIDE_IMAGE_QUALITY]
             )
-            continue
+            if not success:
+                raise ValueError("Failed to encode frame to WebP")
 
-        success, buffer = cv2.imencode(
-            ".webp", frame, [cv2.IMWRITE_WEBP_QUALITY, SLIDE_IMAGE_QUALITY]
-        )
-        if not success:
-            raise ValueError("Failed to encode frame to WebP")
+            if local_output_dir:
+                full_dir = os.path.join(
+                    local_output_dir, "video", video_id, "static_frames"
+                )
+                os.makedirs(full_dir, exist_ok=True)
+                full_path = os.path.join(full_dir, frame_id)
+                with open(full_path, "wb") as f:
+                    f.write(buffer.tobytes())
+                image_url = f"file://{os.path.abspath(full_path)}"
+                bucket_name = "local"
+                uri = image_url
+            else:
+                image_url = upload_to_s3(
+                    buffer.tobytes(),
+                    s3_key,
+                    content_type="image/webp",
+                    metadata=metadata,
+                )
+                bucket_name = S3_BUCKET_NAME
+                uri = f"s3://{S3_BUCKET_NAME}/{s3_key}"
 
-        frame_id = f"static_frame_{idx:06d}.webp"
-        s3_key = f"video/{video_id}/static_frames/{frame_id}"
-
-        metadata = {
-            "video_id": video_id,
-            "segment_id": str(idx),
-            "start_time": str(segment.start_time),
-            "end_time": str(segment.end_time),
-            "has_text": str(info.get("has_text", False)).lower(),
-            "text_conf": f"{info.get('text_confidence', 0.0):.4f}",
-            "text_box_count": str(info.get("text_box_count", 0)),
-        }
-
-        if info.get("skip_reason"):
-            metadata["skip_reason"] = str(info["skip_reason"])
-        if duplicate_of is not None:
-            metadata["duplicate_of"] = str(duplicate_of)
-
-        base_meta = base_metadata[idx - 1]
-        if "text_total_area_ratio" in base_meta:
-            metadata["text_total_area_ratio"] = (
-                f"{base_meta['text_total_area_ratio']:.6f}"
+            image_meta.update(
+                {
+                    "frame_id": frame_id,
+                    "has_text": has_text,
+                    "text_confidence": text_confidence,
+                    "text_total_area_ratio": total_ratio,
+                    "text_largest_area_ratio": largest_ratio,
+                    "text_box_count": len(boxes),
+                    "duplicate_of": duplicate_of,
+                    "skip_reason": skip_reason,
+                    "s3_key": s3_key,
+                    "s3_bucket": bucket_name,
+                    "s3_uri": uri,
+                    "url": image_url,
+                }
             )
-        if "text_largest_area_ratio" in base_meta:
-            metadata["text_largest_area_ratio"] = (
-                f"{base_meta['text_largest_area_ratio']:.6f}"
-            )
 
-        if local_output_dir:
-            full_dir = os.path.join(
-                local_output_dir, "video", video_id, "static_frames"
-            )
-            os.makedirs(full_dir, exist_ok=True)
-            full_path = os.path.join(full_dir, frame_id)
-            with open(full_path, "wb") as f:
-                f.write(buffer.tobytes())
-            image_url = f"file://{os.path.abspath(full_path)}"
-            bucket_name = "local"
-            uri = image_url
-        else:
-            image_url = upload_to_s3(
-                buffer.tobytes(),
-                s3_key,
-                content_type="image/webp",
-                metadata=metadata,
-            )
-            bucket_name = S3_BUCKET_NAME
-            uri = f"s3://{S3_BUCKET_NAME}/{s3_key}"
+            current_seg_meta[f"{position}_frame"] = image_meta
 
-        await update_job_status(
-            video_id,
-            JobStatus.uploading,
-            60.0 + (idx / total_static) * 40.0,
-            f"Uploaded segment {idx}/{total_static} (text confidence {info.get('text_confidence', 0.0):.4f}, boxes: {info.get('text_box_count', 0)})",
-            frame_count=segment.frame_count,
-        )
-
-        uploaded[idx] = {
-            "image_url": image_url,
-            "frame_id": frame_id,
-            "s3_key": s3_key,
-            "s3_bucket": bucket_name,
-            "s3_uri": uri,
-        }
-
-    # Phase 3: assemble final metadata, reusing upload info for duplicates
-    segment_metadata: list[dict[str, Any]] = []
-    for idx, base_meta in enumerate(base_metadata, start=1):
-        entry = dict(base_meta)
-        if idx in uploaded:
-            entry.update(uploaded[idx])
-        elif (duplicate_of := segment_info[idx - 1].get("duplicate_of")) is not None:
-            entry.update(uploaded.get(duplicate_of, {}))
-        if base_meta.get("skip_reason"):
-            entry["skip_reason"] = base_meta["skip_reason"]
-        segment_metadata.append(entry)
+        segment_metadata.append(current_seg_meta)
 
     return segment_metadata
 
@@ -589,6 +527,7 @@ def _build_segments_manifest(
             "kind": segment.type,
             "start_time": segment.start_time,
             "end_time": segment.end_time,
+            "duration": segment.duration,
         }
 
         if segment.type == "static":
@@ -600,33 +539,24 @@ def _build_segments_manifest(
             static_meta = static_segment_metadata[static_index]
             static_index += 1
 
-            entry["frame_id"] = static_meta.get("frame_id")
-            entry["url"] = static_meta.get("image_url")
-            entry["s3_key"] = static_meta.get("s3_key")
-            entry["s3_bucket"] = static_meta.get("s3_bucket")
-            entry["s3_uri"] = static_meta.get("s3_uri")
-            if "has_text" in static_meta:
-                entry["has_text"] = static_meta.get("has_text")
-            if "text_confidence" in static_meta:
-                entry["text_confidence"] = static_meta.get("text_confidence")
-            if "text_total_area_ratio" in static_meta:
-                entry["text_total_area_ratio"] = static_meta.get(
-                    "text_total_area_ratio"
+            entry["first_frame"] = static_meta.get("first_frame")
+            entry["last_frame"] = static_meta.get("last_frame")
+
+            if entry.get("first_frame"):
+                entry["url"] = entry["first_frame"].get("url")
+                entry["has_text"] = entry["first_frame"].get("has_text")
+                entry["text_confidence"] = entry["first_frame"].get(
+                    "text_confidence"
                 )
-            if "text_largest_area_ratio" in static_meta:
-                entry["text_largest_area_ratio"] = static_meta.get(
-                    "text_largest_area_ratio"
-                )
-            if "text_box_count" in static_meta:
-                entry["text_box_count"] = static_meta.get("text_box_count")
-            if "skip_reason" in static_meta:
-                entry["skip_reason"] = static_meta.get("skip_reason")
-            if "duplicate_of" in static_meta:
-                entry["duplicate_of"] = static_meta.get("duplicate_of")
 
         manifest_segments.append(entry)
 
-    return {video_id: {"segments": manifest_segments}}
+    return {
+        video_id: {
+            "segments": manifest_segments,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    }
 
 
 async def extract_and_process_frames(
