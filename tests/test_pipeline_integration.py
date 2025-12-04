@@ -72,7 +72,10 @@ async def test_full_pipeline_with_test_bucket():
 
                 assert len(metadata) == 3
                 for segment in metadata:
-                    assert segment["first_frame"]["s3_bucket"] == "test-bucket-slides-extractor"
+                    assert (
+                        segment["first_frame"]["s3_bucket"]
+                        == "test-bucket-slides-extractor"
+                    )
                     assert segment["first_frame"]["url"].startswith("s3://")
 
             except Exception as e:

@@ -121,7 +121,9 @@ class TestUploadSegments:
         self, mock_upload, mock_imencode, text_detector
     ):
         """Test successful upload of segment frames."""
-        mock_upload.return_value = "https://s3-endpoint/bucket/video/abc/images/frame.webp"
+        mock_upload.return_value = (
+            "https://s3-endpoint/bucket/video/abc/images/frame.webp"
+        )
         mock_imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
 
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
@@ -154,7 +156,9 @@ class TestUploadSegments:
         assert metadata[0]["frame_count"] == 3
         assert metadata[0]["first_frame"]["has_text"] is True
         assert metadata[0]["first_frame"]["text_confidence"] == pytest.approx(0.5)
-        assert metadata[0]["first_frame"]["frame_id"] == "static_frame_000001_first.webp"
+        assert (
+            metadata[0]["first_frame"]["frame_id"] == "static_frame_000001_first.webp"
+        )
         assert metadata[0]["last_frame"]["frame_id"] == "static_frame_000001_last.webp"
         assert metadata[0]["last_frame"]["duplicate_of"] == {
             "segment_id": 1,
