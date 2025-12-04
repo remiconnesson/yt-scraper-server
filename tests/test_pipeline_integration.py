@@ -72,8 +72,8 @@ async def test_full_pipeline_with_test_bucket():
 
                 assert len(metadata) == 3
                 for segment in metadata:
-                    assert segment["s3_bucket"] == "test-bucket-slides-extractor"
-                    assert segment["image_url"].startswith("s3://")
+                    assert segment["first_frame"]["s3_bucket"] == "test-bucket-slides-extractor"
+                    assert segment["first_frame"]["url"].startswith("s3://")
 
             except Exception as e:
                 pytest.fail(f"Pipeline failed (check S3 creds?): {e}")
@@ -105,6 +105,6 @@ async def test_full_pipeline_local_save():
                 "video",
                 video_id,
                 "static_frames",
-                "static_frame_000001.webp",
+                "static_frame_000001_first.webp",
             )
         )

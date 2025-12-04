@@ -545,15 +545,14 @@ def _build_segments_manifest(
             static_meta = static_segment_metadata[static_index]
             static_index += 1
 
-            entry["first_frame"] = static_meta.get("first_frame")
+            first_frame = static_meta.get("first_frame")
+            entry["first_frame"] = first_frame
             entry["last_frame"] = static_meta.get("last_frame")
 
-            if entry.get("first_frame"):
-                entry["url"] = entry["first_frame"].get("url")
-                entry["has_text"] = entry["first_frame"].get("has_text")
-                entry["text_confidence"] = entry["first_frame"].get(
-                    "text_confidence"
-                )
+            if first_frame:
+                entry["url"] = first_frame.get("url")
+                entry["has_text"] = first_frame.get("has_text")
+                entry["text_confidence"] = first_frame.get("text_confidence")
 
         manifest_segments.append(entry)
 
