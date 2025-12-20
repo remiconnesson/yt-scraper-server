@@ -1,6 +1,6 @@
 fastapi
 uvicorn[standard]
-boto3
+vercel>=0.3.6
 yt-dlp
 opencv-python-headless>=4.11.0.86
 Pillow

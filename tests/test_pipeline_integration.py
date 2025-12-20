@@ -32,60 +32,38 @@ def test_video_analysis_only():
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_full_pipeline_with_test_bucket():
-    """Test the full pipeline using a configured test S3 bucket."""
-    # NOTE: This test requires AWS credentials to be available in the environment
+async def test_full_pipeline_with_test_blob():
+    """Test the full pipeline using a configured test Vercel Blob token."""
     with tempfile.TemporaryDirectory() as temp_dir:
         video_path = os.path.join(temp_dir, "test_video.mp4")
         create_test_video(video_path, duration_seconds=20, fps=5)
 
         video_id = "test_video_001"
 
-        # Patch the bucket name to use 'test_bucket' (or a specific test bucket name you use)
-        # In a real scenario, you might use moto to mock S3 entirely, or a dedicated test bucket.
-        # Since the user asked to use the 'test_bucket', we patch it here.
         with (
             patch(
-                "slides_extractor.settings.S3_BUCKET_NAME",
-                "test-bucket-slides-extractor",
-            ),
-            patch(
-                "slides_extractor.video_service.S3_BUCKET_NAME",
-                "test-bucket-slides-extractor",
+                "slides_extractor.settings.BLOB_READ_WRITE_TOKEN",
+                "test-blob-token",
             ),
         ):
-            # We also need to ensure S3_ACCESS_KEY and S3_ENDPOINT are set, or mock them if we want to avoid real calls.
-            # If we want real integration tests, we assume env vars are set.
-            # If we want to simulate success without real S3, we might need to mock upload_to_s3 as well,
-            # but the user asked for an "actual integration test".
-            # However, without actual credentials, this might fail in this environment.
-            # I will assume the environment has credentials or the user accepts failure if not.
-            # But strictly speaking, if we want to ensure it passes in a CI without creds, we might need more mocks.
-            # For now I follow the user request to use "test_bucket".
-
-            # Check if we have creds, if not, maybe skip or warn?
-            if not os.getenv("S3_ACCESS_KEY"):
-                pytest.skip("S3_ACCESS_KEY not set, skipping real S3 integration test")
+            if not os.getenv("BLOB_READ_WRITE_TOKEN"):
+                pytest.skip("BLOB_READ_WRITE_TOKEN not set, skipping real Blob integration test")
 
             try:
                 metadata = await extract_and_process_frames(video_path, video_id)
 
                 assert len(metadata) == 3
                 for segment in metadata:
-                    assert (
-                        segment["first_frame"]["s3_bucket"]
-                        == "test-bucket-slides-extractor"
-                    )
-                    assert segment["first_frame"]["url"].startswith("s3://")
+                    assert "vercel-storage.com" in segment["first_frame"]["url"]
 
             except Exception as e:
-                pytest.fail(f"Pipeline failed (check S3 creds?): {e}")
+                pytest.fail(f"Pipeline failed (check Blob token?): {e}")
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_full_pipeline_local_save():
-    """Test the full pipeline saving to local disk (no S3)."""
+    """Test the full pipeline saving to local disk (no Blob)."""
     with tempfile.TemporaryDirectory() as temp_dir:
         video_path = os.path.join(temp_dir, "test_video.mp4")
         output_dir = os.path.join(temp_dir, "output")
@@ -100,14 +78,13 @@ async def test_full_pipeline_local_save():
         assert len(metadata) == 3
         # Check files exist on disk
         assert os.path.exists(
-            os.path.join(output_dir, "video", video_id, "video_segments.json")
+            os.path.join(output_dir, "manifests", video_id)
         )
         assert os.path.exists(
             os.path.join(
                 output_dir,
-                "video",
+                "slides",
                 video_id,
-                "static_frames",
-                "static_frame_000001_first.webp",
+                "1-first.webp",
             )
         )

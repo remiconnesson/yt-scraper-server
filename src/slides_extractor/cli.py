@@ -17,20 +17,20 @@ def cli():
 
 @cli.command()
 @click.argument("video_id")
-@click.option("--output-dir", help="Directory to save output to (implies --no-s3)")
+@click.option("--output-dir", help="Directory to save output to (implies --no-blob)")
 @click.option(
-    "--no-s3",
+    "--no-blob",
     is_flag=True,
-    help="Disable S3 upload. Defaults to './output' if no --output-dir provided",
+    help="Disable Vercel Blob upload. Defaults to './output' if no --output-dir provided",
 )
-def process(video_id: str, output_dir: str, no_s3: bool):
+def process(video_id: str, output_dir: str, no_blob: bool):
     """Process a YouTube video by ID."""
 
     # Handle output logic
     local_dir = None
     if output_dir:
         local_dir = output_dir
-    elif no_s3:
+    elif no_blob:
         local_dir = "./output"
 
     video_url = f"https://www.youtube.com/watch?v={video_id}"
@@ -40,7 +40,7 @@ def process(video_id: str, output_dir: str, no_s3: bool):
     if local_dir:
         click.echo(f"Output: Local ({local_dir})")
     else:
-        click.echo("Output: S3 Upload")
+        click.echo("Output: Vercel Blob Upload")
     click.echo("=" * 50)
 
     try:
