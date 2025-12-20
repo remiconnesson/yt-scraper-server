@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pytest
 
+from slides_extractor.constants import MANIFEST_PATH_TEMPLATE
 from slides_extractor.video_service import (
     _detect_static_segments,
     _upload_segments,
@@ -309,7 +310,9 @@ class TestExtractAndProcessFramesIntegration:
         )
         # Verify manifest upload
         assert mock_upload_to_blob.called
-        assert mock_upload_to_blob.call_args[0][1] == "manifests/video-id"
+        assert mock_upload_to_blob.call_args[0][1] == MANIFEST_PATH_TEMPLATE.format(
+            video_id="video-id"
+        )
 
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service._detect_static_segments")
@@ -535,18 +538,20 @@ class TestExtractAndProcessFramesManifestUpload:
         ]
 
         mock_upload_to_blob.return_value = (
-            "https://blob.vercel-storage.com/manifests/vid"
+            "https://blob.vercel-storage.com/"
+            + MANIFEST_PATH_TEMPLATE.format(video_id="vid")
         )
 
         await extract_and_process_frames("/tmp/video.mp4", "vid")
 
         mock_upload_to_blob.assert_called_once()
         args, _ = mock_upload_to_blob.call_args
-        assert args[1] == "manifests/vid"
+        assert args[1] == MANIFEST_PATH_TEMPLATE.format(video_id="vid")
 
         async with JOBS_LOCK:
-            assert (
-                JOBS["vid"]["metadata_uri"]
-                == "https://blob.vercel-storage.com/manifests/vid"
+            assert JOBS["vid"][
+                "metadata_uri"
+            ] == "https://blob.vercel-storage.com/" + MANIFEST_PATH_TEMPLATE.format(
+                video_id="vid"
             )
             assert JOBS["vid"]["status"] == JobStatus.completed

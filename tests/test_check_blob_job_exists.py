@@ -1,6 +1,8 @@
 import pytest
 from slides_extractor import settings, video_service
 
+from slides_extractor.constants import MANIFEST_PATH_TEMPLATE
+
 
 def _configure_blob(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "BLOB_READ_WRITE_TOKEN", "test-token")
@@ -36,7 +38,7 @@ async def test_check_blob_job_exists_returns_url_for_manifest(
             return FakeResponse(
                 [
                     FakeBlob(
-                        "manifests/xyz789",
+                        MANIFEST_PATH_TEMPLATE.format(video_id="xyz789"),
                         "https://blob.vercel-storage.com/xyz789",
                         128,
                     )
@@ -62,7 +64,7 @@ async def test_check_blob_job_exists_returns_none_if_not_found(
             self.blobs = blobs
 
     class FakeClient:
-        async def list(self, options=None):
+        async def list(self):
             return FakeResponse([])
 
     monkeypatch.setattr(video_service, "AsyncBlobClient", lambda: FakeClient())

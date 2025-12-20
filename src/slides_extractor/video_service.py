@@ -7,7 +7,7 @@ slides/
     1-last.webp
     ...
 manifests/
-  {video_id}
+  {video_id}.json
 
 Where `video_id` is the YouTube video ID.
 """
@@ -28,6 +28,7 @@ from PIL import Image
 from pydantic import BaseModel
 from vercel.blob import AsyncBlobClient
 
+from slides_extractor.constants import MANIFEST_PATH_TEMPLATE
 from slides_extractor.extract_slides.video_analyzer import (
     FrameStreamer,
     Segment,
@@ -481,7 +482,7 @@ async def extract_and_process_frames(
     else:
         metadata_uri = await upload_to_blob(
             manifest_bytes,
-            f"manifests/{video_id}",
+            MANIFEST_PATH_TEMPLATE.format(video_id=video_id),
             content_type="application/json",
         )
 
@@ -505,7 +506,7 @@ async def check_blob_job_exists(video_id: str) -> str | None:
     if not BLOB_READ_WRITE_TOKEN:
         return None
 
-    path = f"manifests/{video_id}"
+    path = MANIFEST_PATH_TEMPLATE.format(video_id=video_id)
     try:
         client = AsyncBlobClient()
         response = await client.list_objects(prefix=path)
