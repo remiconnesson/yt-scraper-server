@@ -263,6 +263,7 @@ async def _upload_segments(
     segment_data_list: list[dict[str, Any]] = []
 
     # 1. Prepare all frames and determine duplicates
+    # TODO_LATER: start=1 is the source of the issue of off by one error in the frontend(keep for now, we need to backfill)
     for idx, segment in enumerate(segments, start=1):
         frames_to_process = [
             ("first", segment.representative_frame),
@@ -337,6 +338,7 @@ async def _upload_segments(
     segment_metadata: list[dict[str, Any]] = []
     total_static = len(segments) or 1
 
+    # TODO_LATER: start=1 is the source of the issue of off by one error in the frontend(keep for now, we need to backfill)
     for idx, seg_info in enumerate(segment_data_list, start=1):
         progress = 60.0 + ((idx - 1) / total_static) * 35.0
         await update_job_status(
