@@ -362,12 +362,10 @@ async def _upload_segments(
             image_meta: dict[str, Any] = {
                 "frame_id": None,
                 "duplicate_of": None,
-                "skip_reason": None,
                 "url": None,
             }
 
             if frame_info is None:
-                image_meta["skip_reason"] = "missing_frame"
                 current_seg_meta[f"{position}_frame"] = image_meta
                 continue
 
