@@ -21,6 +21,7 @@ dependencies = [
     "numpy",
     "pydantic",
     "click>=8.1.7",
+    "vercel>=0.3.6",
 ]
 
 [project.scripts]
