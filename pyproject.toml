@@ -14,13 +14,13 @@ dependencies = [
     "requests>=2.32.5",
     "uvicorn>=0.38.0",
     "yt-dlp>=2025.11.12",
-    "boto3",
     "opencv-python-headless>=4.11.0.86",
     "Pillow",
     "imagehash",
     "numpy",
     "pydantic",
     "click>=8.1.7",
+    "vercel>=0.3.6",
 ]
 
 [project.scripts]
@@ -42,7 +42,6 @@ where = ["src"]
 
 [tool.uv]
 dev-dependencies = [
-    "boto3-stubs[s3]>=1.35.90",
     "httpx>=0.28.0",
     "mypy>=1.18.2",
     "pytest",

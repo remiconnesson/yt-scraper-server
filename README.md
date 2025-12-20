@@ -3,8 +3,8 @@
 A python package with several concerns:
 1. Downloading YouTube videos and audio streams
 2. Extracting slides from videos frames
-3. Uploading slides to S3 with metadata about the timestamps of the slides in the video
-4. Running a webserver and update clients about the progress of the downloads and the slides extraction
+3. Uploading slides to Vercel Blob Storage with a deterministic naming strategy
+4. Running a webserver and updating clients about the progress of downloads and extraction
 
 ## Requirements
 
@@ -26,11 +26,9 @@ A python package with several concerns:
    - `ZYTE_HOST` (defaults to `api.zyte.com`)
    - `DATACENTER_PROXY` (optional `user:pass@host:port` or full URL)
    - `API_PASSWORD` (required for authenticating API requests)
-   - `S3_ENDPOINT` (required for slide upload)
-   - `S3_ACCESS_KEY` (required)
-   - `S3_BUCKET_NAME` (optional, defaults to `slides-extractor`)
+   - `BLOB_READ_WRITE_TOKEN` (required for Vercel Blob upload)
 
-   **Note:** S3 uploads are private. Consumers must have valid credentials or generate presigned URLs to access the uploaded slides.
+   **Note:** Vercel Blob uploads follow a deterministic naming strategy: `slides/{videoId}/{slideIndex}-{framePosition}.webp` and `manifests/{videoId}`.
 
 3. Run the API server:
 
@@ -88,7 +86,7 @@ To deploy the application to Kubernetes:
 
     ```bash
     kubectl create configmap slides-extractor-config \
-      --from-literal=S3_ENDPOINT=your_s3_endpoint
+      --from-literal=ZYTE_HOST=api.zyte.com
     ```
 
 2.  **Create the secrets:**
@@ -96,13 +94,12 @@ To deploy the application to Kubernetes:
     ```bash
     kubectl create secret generic slides-extractor-secrets \
       --from-literal=ZYTE_API_KEY=your_zyte_api_key \
-      --from-literal=S3_ACCESS_KEY=your_s3_access_key \
+      --from-literal=BLOB_READ_WRITE_TOKEN=your_vercel_blob_token \
       --from-literal=API_PASSWORD=your_api_password \
       --from-literal=DATACENTER_PROXY=DATACENTER_PROXY
-
     ```
 
-3. **Build and push the image to the prviate local registry:**
+3. **Build and push the image to the private local registry:**
 
     ```bash
     TAG=v0.0.0

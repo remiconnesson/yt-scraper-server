@@ -1,48 +1,15 @@
 """
-S3 storage structure:
+Vercel Blob storage structure:
 
-video/
+slides/
   {video_id}/
-    static_frames/
-      static_frame_000001.webp
-      static_frame_000002.webp
-      ...
-    video_segments.json
+    1-first.webp
+    1-last.webp
+    ...
+manifests/
+  {video_id}.json
 
-Where `video_id` is the YouTube video ID for YouTube sources and `frame_000001.webp` is the first static frame of the video.
-
-video_segments.json (example):
-```
-{
-    "video_id": {
-        "segments": [
-      {
-            "kind": "moving",
-        "start_time": 0.0,
-        "end_time": 1.0,
-      },
-      {
-        "kind": "static",
-        "frame_id": "static_frame_000001.webp",
-        "start_time": 0.0,
-        "end_time": 1.0,
-        "url": f"{s3_endpoint}/video/video_id/static_frames/static_frame_000001.webp",
-        "s3_key": "video/video_id/static_frames/static_frame_000001.webp",
-        "s3_bucket": "slides-extractor",
-        "s3_uri": "s3://slides-extractor/video/video_id/static_frames/static_frame_000001.webp",
-      },
-      {
-        "kind": "static",
-        "frame_id": "static_frame_000002.webp",
-        "start_time": 1.0,
-        "end_time": 2.0,
-        "url": f"{s3_endpoint}/video/video_id/static_frames/static_frame_000002.webp",
-      },
-      ...
-    ],
-  },
-}
-```
+Where `video_id` is the YouTube video ID.
 """
 
 import asyncio
@@ -54,25 +21,20 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
-import boto3
 import cv2
 import imagehash
 import numpy as np
-from botocore.client import Config
-from botocore.exceptions import ClientError
 from PIL import Image
 from pydantic import BaseModel
-import requests
+from vercel.blob import AsyncBlobClient
 
+from slides_extractor.constants import MANIFEST_PATH_TEMPLATE
 from slides_extractor.extract_slides.video_analyzer import (
     FrameStreamer,
     Segment,
     SegmentDetector,
 )
 from slides_extractor.settings import (
-    S3_ACCESS_KEY,
-    S3_BUCKET_NAME,
-    S3_ENDPOINT,
     SLIDE_IMAGE_QUALITY,
 )
 
@@ -100,14 +62,8 @@ class JobResult(BaseModel):
     frame_count: Optional[int] = None
 
 
-class ProcessRequest(BaseModel):
-    s3_uri: str
-
-
 JOBS: dict[str, dict[str, Any]] = {}
 JOBS_LOCK = asyncio.Lock()
-_S3_CLIENT = None
-_NORMALIZED_S3_ENDPOINT: str | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -127,64 +83,18 @@ async def has_active_jobs() -> bool:
         return any(job.get("status") in _ACTIVE_JOB_STATUSES for job in JOBS.values())
 
 
-def upload_to_s3(
-    data: bytes,
-    key: str,
-    content_type: str = "image/webp",
-    metadata: Optional[dict[str, str]] = None,
-) -> str:
-    """Upload image bytes to S3 with metadata.
-
-    The upload uses a presigned URL and standard HTTP PUT via requests to ensure
-    compatibility with S3 providers that mishandle chunked transfer encoding.
-    Objects are uploaded as private, accessible only with valid credentials.
-
-    Args:
-        data: Image bytes to upload.
-        key: Destination object key within the bucket.
-        content_type: MIME type for the uploaded object; defaults to WebP images.
-        metadata: Optional dictionary of metadata to persist alongside the
-            object.
-
-    Returns:
-        The S3 URL of the uploaded object (requires auth to access).
-    """
-    s3 = _get_s3_client()
-
-    # Generate presigned URL for PUT
-    params: dict[str, Any] = {
-        "Bucket": S3_BUCKET_NAME,
-        "Key": key,
-        "ContentType": content_type,
-    }
-    if metadata:
-        params["Metadata"] = metadata
-
-    try:
-        presigned_url = s3.generate_presigned_url(
-            "put_object",
-            Params=params,
-            ExpiresIn=300,  # 5 minutes
-        )
-    except Exception as exc:
-        raise RuntimeError(f"Failed to generate presigned URL: {exc}") from exc
-
-    # Prepare headers for the request
-    headers = {"Content-Type": content_type}
-    if metadata:
-        for k, v in metadata.items():
-            headers[f"x-amz-meta-{k}"] = v
-
-    # Upload via requests (avoids boto3 chunked encoding issues with this S3 provider)
-    response = requests.put(
-        presigned_url,
-        data=data,
-        headers=headers,
-        timeout=30,
+async def upload_to_blob(data: bytes, path: str, content_type: str) -> str:
+    """Upload data to Vercel Blob Storage asynchronously."""
+    client = AsyncBlobClient()
+    response = await client.put(
+        path, data, content_type=content_type, add_random_suffix=False, overwrite=True
     )
-    response.raise_for_status()
+    return response.url
 
-    return f"s3://{S3_BUCKET_NAME}/{key}"
+
+def generate_blob_path(video_id: str, slide_index: int, frame_position: str) -> str:
+    """Generate a deterministic path for a slide frame."""
+    return f"slides/{video_id}/{slide_index}-{frame_position}.webp"
 
 
 def _compute_frame_hash(frame: np.ndarray) -> imagehash.ImageHash:
@@ -347,51 +257,28 @@ async def _upload_segments(
     local_output_dir: Optional[str] = None,
     dedup_threshold: int = 5,
 ) -> list[dict[str, Any]]:
-    """Upload representative and trailing frames to storage and report progress."""
+    """Upload representative and trailing frames to storage in parallel."""
 
-    total_static = len(segments) or 1
     hash_records: list[tuple[imagehash.ImageHash, int, str]] = []
-    segment_metadata: list[dict[str, Any]] = []
+    segment_data_list: list[dict[str, Any]] = []
 
+    # 1. Prepare all frames and determine duplicates
     for idx, segment in enumerate(segments, start=1):
-        progress = 60.0 + ((idx - 1) / total_static) * 35.0
-        await update_job_status(
-            video_id,
-            JobStatus.uploading,
-            progress=progress,
-            message=f"Processing slide {idx}/{total_static}",
-        )
-
-        current_seg_meta: dict[str, Any] = {
-            "segment_id": idx,
-            "start_time": segment.start_time,
-            "end_time": segment.end_time,
-            "duration": segment.duration,
-            "frame_count": segment.frame_count,
-        }
-
         frames_to_process = [
             ("first", segment.representative_frame),
             ("last", segment.last_frame),
         ]
 
+        segment_info: dict[str, Any] = {
+            "idx": idx,
+            "segment": segment,
+            "frames": {},
+        }
+
         for position, frame_img in frames_to_process:
-            image_meta: dict[str, Any] = {
-                "frame_id": None,
-                "duplicate_of": None,
-                "skip_reason": None,
-                "s3_key": None,
-                "s3_bucket": None,
-                "s3_uri": None,
-                "url": None,
-            }
-
             if frame_img is None:
-                image_meta["skip_reason"] = "missing_frame"
-                current_seg_meta[f"{position}_frame"] = image_meta
+                segment_info["frames"][position] = None
                 continue
-
-            bgr_frame = cv2.cvtColor(frame_img, cv2.COLOR_RGB2BGR)
 
             frame_hash = _compute_frame_hash(frame_img)
             duplicate_of: tuple[int, str] | None = None
@@ -400,66 +287,111 @@ async def _upload_segments(
                     duplicate_of = (origin_idx, origin_position)
                     break
 
-            hash_records.append((frame_hash, idx, position))
+            if duplicate_of is None:
+                hash_records.append((frame_hash, idx, position))
 
-            frame_id = f"static_frame_{idx:06d}_{position}.webp"
-            s3_key = f"video/{video_id}/static_frames/{frame_id}"
-
-            metadata = {
-                "video_id": video_id,
-                "segment_id": str(idx),
-                "frame_position": position,
-                "start_time": str(segment.start_time),
-                "end_time": str(segment.end_time),
-            }
-
-            if duplicate_of is not None:
-                # TODO: check if the off-by-one error is coming frome here
-                origin_idx, origin_position = duplicate_of
-                metadata["duplicate_of"] = f"{origin_idx}:{origin_position}"
-
+            bgr_frame = cv2.cvtColor(frame_img, cv2.COLOR_RGB2BGR)
             success, buffer = cv2.imencode(
                 ".webp", bgr_frame, [cv2.IMWRITE_WEBP_QUALITY, SLIDE_IMAGE_QUALITY]
             )
             if not success:
-                raise ValueError("Failed to encode frame to WebP")
+                raise ValueError(f"Failed to encode frame {idx} {position} to WebP")
 
-            if local_output_dir:
-                full_dir = os.path.join(
-                    local_output_dir, "video", video_id, "static_frames"
-                )
-                os.makedirs(full_dir, exist_ok=True)
-                full_path = os.path.join(full_dir, frame_id)
-                with open(full_path, "wb") as f:
-                    f.write(buffer.tobytes())
-                image_url = f"file://{os.path.abspath(full_path)}"
-                bucket_name = "local"
-                uri = image_url
-            else:
-                image_url = upload_to_s3(
-                    buffer.tobytes(),
-                    s3_key,
-                    content_type="image/webp",
-                    metadata=metadata,
-                )
-                bucket_name = S3_BUCKET_NAME
-                uri = f"s3://{S3_BUCKET_NAME}/{s3_key}"
+            segment_info["frames"][position] = {
+                "data": buffer.tobytes(),
+                "duplicate_of": duplicate_of,
+                "path": generate_blob_path(video_id, idx, position),
+            }
+        segment_data_list.append(segment_info)
 
-            image_meta.update(
-                {
-                    "frame_id": frame_id,
-                    "duplicate_of": {
-                        "segment_id": duplicate_of[0],
-                        "frame_position": duplicate_of[1],
-                    }
-                    if duplicate_of is not None
-                    else None,
-                    "s3_key": s3_key,
-                    "s3_bucket": bucket_name,
-                    "s3_uri": uri,
-                    "url": image_url,
+    # 2. Collect upload tasks for unique frames
+    tasks = []
+    task_keys = []  # To map results back: (idx, position)
+    for seg_info in segment_data_list:
+        idx = seg_info["idx"]
+        for position, frame_info in seg_info["frames"].items():
+            if frame_info and frame_info["duplicate_of"] is None:
+                if not local_output_dir:
+                    tasks.append(
+                        upload_to_blob(
+                            frame_info["data"], frame_info["path"], "image/webp"
+                        )
+                    )
+                    task_keys.append((idx, position))
+                else:
+                    # Handle local output synchronously for simplicity or use a thread pool
+                    # But the requirement is focused on Blob migration.
+                    full_dir = os.path.join(local_output_dir, "slides", video_id)
+                    os.makedirs(full_dir, exist_ok=True)
+                    filename = f"{idx}-{position}.webp"
+                    full_path = os.path.join(full_dir, filename)
+                    with open(full_path, "wb") as f:
+                        f.write(frame_info["data"])
+                    frame_info["url"] = f"file://{os.path.abspath(full_path)}"
+
+    # 3. Execute uploads in parallel
+    results = await asyncio.gather(*tasks) if tasks else []
+    url_map = {key: url for key, url in zip(task_keys, results, strict=True)}
+
+    # 4. Finalize segment metadata
+    segment_metadata: list[dict[str, Any]] = []
+    total_static = len(segments) or 1
+
+    for idx, seg_info in enumerate(segment_data_list, start=1):
+        progress = 60.0 + ((idx - 1) / total_static) * 35.0
+        await update_job_status(
+            video_id,
+            JobStatus.uploading,
+            progress=progress,
+            message=f"Processing slide {idx}/{total_static}",
+        )
+
+        segment = seg_info["segment"]
+        current_seg_meta: dict[str, Any] = {
+            "segment_id": idx,
+            "start_time": segment.start_time,
+            "end_time": segment.end_time,
+            "duration": segment.duration,
+            "frame_count": segment.frame_count,
+        }
+
+        for position in ["first", "last"]:
+            frame_info = seg_info["frames"][position]
+            image_meta: dict[str, Any] = {
+                "frame_id": None,
+                "duplicate_of": None,
+                "skip_reason": None,
+                "url": None,
+            }
+
+            if frame_info is None:
+                image_meta["skip_reason"] = "missing_frame"
+                current_seg_meta[f"{position}_frame"] = image_meta
+                continue
+
+            frame_id = f"{idx}-{position}.webp"
+            image_meta["frame_id"] = frame_id
+
+            if frame_info["duplicate_of"]:
+                origin_idx, origin_pos = frame_info["duplicate_of"]
+                image_meta["duplicate_of"] = {
+                    "segment_id": origin_idx,
+                    "frame_position": origin_pos,
                 }
-            )
+                # Find the URL of the original frame
+                # Duplicates will always refer to a previous frame that was unique
+                # So it must be in our url_map or already have a "url" set if local
+                if local_output_dir:
+                    # Find original in previous segment_data_list entries
+                    orig_seg = segment_data_list[origin_idx - 1]
+                    image_meta["url"] = orig_seg["frames"][origin_pos]["url"]
+                else:
+                    image_meta["url"] = url_map.get((origin_idx, origin_pos))
+            else:
+                if local_output_dir:
+                    image_meta["url"] = frame_info["url"]
+                else:
+                    image_meta["url"] = url_map.get((idx, position))
 
             current_seg_meta[f"{position}_frame"] = image_meta
 
@@ -541,18 +473,17 @@ async def extract_and_process_frames(
     manifest_bytes = json.dumps(manifest, indent=2).encode()
 
     if local_output_dir:
-        full_dir = os.path.join(local_output_dir, "video", video_id)
+        full_dir = os.path.join(local_output_dir, "manifests")
         os.makedirs(full_dir, exist_ok=True)
-        full_path = os.path.join(full_dir, "video_segments.json")
+        full_path = os.path.join(full_dir, video_id)
         with open(full_path, "wb") as f:
             f.write(manifest_bytes)
         metadata_uri = f"file://{os.path.abspath(full_path)}"
     else:
-        metadata_uri = upload_to_s3(
+        metadata_uri = await upload_to_blob(
             manifest_bytes,
-            f"video/{video_id}/video_segments.json",
+            MANIFEST_PATH_TEMPLATE.format(video_id=video_id),
             content_type="application/json",
-            metadata={"video_id": video_id},
         )
 
     await update_job_status(
@@ -567,74 +498,28 @@ async def extract_and_process_frames(
     return segment_metadata
 
 
-def _get_s3_endpoint() -> str:
-    if not S3_ENDPOINT:
-        raise RuntimeError("S3 configuration missing; set S3_ENDPOINT")
+async def check_blob_job_exists(video_id: str) -> str | None:
+    """Return Vercel Blob URL if the job output already exists."""
 
-    global _NORMALIZED_S3_ENDPOINT
-    if _NORMALIZED_S3_ENDPOINT is None:
-        if S3_ENDPOINT.startswith(("http://", "https://")):
-            endpoint = S3_ENDPOINT
-        else:
-            endpoint = f"https://{S3_ENDPOINT}"
-        _NORMALIZED_S3_ENDPOINT = endpoint.rstrip("/")
+    from slides_extractor.settings import BLOB_READ_WRITE_TOKEN
 
-    return _NORMALIZED_S3_ENDPOINT
-
-
-def _get_s3_client():
-    if not S3_ENDPOINT or not S3_ACCESS_KEY:
-        raise RuntimeError(
-            "S3 configuration missing; set S3_ENDPOINT and S3_ACCESS_KEY"
-        )
-
-    global _S3_CLIENT
-    if _S3_CLIENT is None:
-        _S3_CLIENT = boto3.client(
-            "s3",
-            endpoint_url=_get_s3_endpoint(),
-            aws_access_key_id=S3_ACCESS_KEY,
-            aws_secret_access_key=S3_ACCESS_KEY,
-            config=Config(signature_version="s3v4"),
-        )
-
-    return _S3_CLIENT
-
-
-def check_s3_job_exists(video_id: str) -> str | None:
-    """Return public S3 URL if the job output already exists."""
-
-    if not S3_ENDPOINT or not S3_ACCESS_KEY:
+    if not BLOB_READ_WRITE_TOKEN:
         return None
 
-    key = f"video/{video_id}/video_segments.json"
+    path = MANIFEST_PATH_TEMPLATE.format(video_id=video_id)
     try:
-        s3 = _get_s3_client()
-        metadata = s3.head_object(Bucket=S3_BUCKET_NAME, Key=key)
-        content_type = (metadata or {}).get("ContentType", "").lower()
-        content_length = (metadata or {}).get("ContentLength", 0)
+        client = AsyncBlobClient()
+        response = await client.list_objects(prefix=path)
 
-        if content_type in {"application/x-directory", "inode/directory"}:
-            logger.warning(
-                "Job output for %s is a directory marker, ignoring", video_id
-            )
-            return None
-
-        if not isinstance(content_length, (int, float)) or content_length <= 0:
-            logger.warning(
-                "Job output for %s is missing or empty (length=%s)",
-                video_id,
-                content_length,
-            )
-            return None
-
-        endpoint = _get_s3_endpoint()
-        return f"{endpoint}/{S3_BUCKET_NAME}/{key}"
-    except ClientError as exc:
-        if exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404:
-            return None
-        logger.warning("Failed to check job existence in S3 for %s: %s", video_id, exc)
+        # Check for exact match in the listed blobs
+        for blob in response.blobs:
+            if blob.pathname == path:
+                if blob.size > 0:
+                    return blob.url
+                break
         return None
-    except Exception as exc:  # pragma: no cover - defensive logging
-        logger.warning("Unexpected error checking S3 for %s: %s", video_id, exc)
+    except Exception as exc:
+        logger.warning(
+            "Failed to check job existence in Vercel Blob for %s: %s", video_id, exc
+        )
         return None

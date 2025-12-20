@@ -18,13 +18,12 @@ from slides_extractor.job_tracker import (
     has_active_progress_entries,
     progress_snapshot,
 )
-from slides_extractor.settings import API_PASSWORD
 from slides_extractor.video_jobs import process_video_task
 from slides_extractor.video_service import (
     JOBS,
     JOBS_LOCK,
     JobStatus,
-    check_s3_job_exists,
+    check_blob_job_exists,
     has_active_jobs,
     stream_job_progress,
     update_job_status,
@@ -126,7 +125,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 def require_api_password(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> None:
-    configured_password = os.getenv("API_PASSWORD") or API_PASSWORD
+    configured_password = os.getenv("API_PASSWORD")
 
     if configured_password is None:
         raise HTTPException(
@@ -242,7 +241,7 @@ async def process_youtube_video(video_id: str, background_tasks: BackgroundTasks
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
-    metadata_uri = check_s3_job_exists(video_id)
+    metadata_uri = await check_blob_job_exists(video_id)
     if metadata_uri:
         job_state = await update_job_status(
             video_id,
@@ -285,7 +284,7 @@ async def get_job(video_id: str) -> dict[str, Any]:
         job = dict(JOBS.get(video_id, {}))
 
     if not job:
-        metadata_uri = check_s3_job_exists(video_id)
+        metadata_uri = await check_blob_job_exists(video_id)
         if metadata_uri:
             job = await update_job_status(
                 video_id,
