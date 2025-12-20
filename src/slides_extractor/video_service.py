@@ -431,9 +431,6 @@ def _build_segments_manifest(
             entry["first_frame"] = first_frame
             entry["last_frame"] = static_meta.get("last_frame")
 
-            if first_frame:
-                entry["url"] = first_frame.get("url")
-
         manifest_segments.append(entry)
 
     return {

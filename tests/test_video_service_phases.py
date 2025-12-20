@@ -391,7 +391,6 @@ class TestBuildSegmentsManifest:
         assert static_seg["kind"] == "static"
         assert static_seg["first_frame"]["frame_id"] == "1-first.webp"
         assert static_seg["last_frame"]["frame_id"] == "1-last.webp"
-        assert static_seg["url"] == "https://blob.vercel-storage.com/1-first.webp"
 
     def test_manifest_exact_structure_with_multiple_static_and_moving_segments(self):
         """Ensure manifest ordering matches segments and static metadata 1:1."""
