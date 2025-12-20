@@ -31,7 +31,7 @@ async def test_check_blob_job_exists_returns_url_for_manifest(
             self.blobs = blobs
 
     class FakeClient:
-        async def list(self, options=None):
+        async def list_objects(self, prefix: str):
             return FakeResponse(
                 [
                     FakeBlob(
