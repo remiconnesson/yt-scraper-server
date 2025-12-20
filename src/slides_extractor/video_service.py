@@ -86,12 +86,7 @@ async def upload_to_blob(data: bytes, path: str, content_type: str) -> str:
     """Upload data to Vercel Blob Storage asynchronously."""
     client = AsyncBlobClient()
     response = await client.put(
-        path,
-        data,
-        options={
-            "contentType": content_type,
-            "addRandomSuffix": False,  # CRITICAL for frontend matching
-        },
+        path, data, content_type=content_type, add_random_suffix=False
     )
     return response.url
 
@@ -325,9 +320,7 @@ async def _upload_segments(
                 else:
                     # Handle local output synchronously for simplicity or use a thread pool
                     # But the requirement is focused on Blob migration.
-                    full_dir = os.path.join(
-                        local_output_dir, "slides", video_id
-                    )
+                    full_dir = os.path.join(local_output_dir, "slides", video_id)
                     os.makedirs(full_dir, exist_ok=True)
                     filename = f"{idx}-{position}.webp"
                     full_path = os.path.join(full_dir, filename)
@@ -515,7 +508,7 @@ async def check_blob_job_exists(video_id: str) -> str | None:
     path = f"manifests/{video_id}"
     try:
         client = AsyncBlobClient()
-        response = await client.list(options={"prefix": path})
+        response = await client.list_objects(prefix=path)
 
         # Check for exact match in the listed blobs
         for blob in response.blobs:
