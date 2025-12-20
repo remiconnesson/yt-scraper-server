@@ -10,6 +10,7 @@ def _configure_blob(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_check_blob_job_exists_returns_none_when_no_token(
     monkeypatch: pytest.MonkeyPatch,
 ):
+    # TODO: wait why do we allow to return None here?
     monkeypatch.setattr(settings, "BLOB_READ_WRITE_TOKEN", None)
     assert await video_service.check_blob_job_exists("abc123") is None
 
