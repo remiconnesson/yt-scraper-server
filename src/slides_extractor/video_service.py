@@ -378,11 +378,6 @@ async def _upload_segments(
         for position, frame_img in frames_to_process:
             image_meta: dict[str, Any] = {
                 "frame_id": None,
-                "has_text": False,
-                "text_confidence": 0.0,
-                "text_total_area_ratio": 0.0,
-                "text_largest_area_ratio": 0.0,
-                "text_box_count": 0,
                 "duplicate_of": None,
                 "skip_reason": None,
                 "s3_key": None,
@@ -506,8 +501,6 @@ def _build_segments_manifest(
 
             if first_frame:
                 entry["url"] = first_frame.get("url")
-                entry["has_text"] = first_frame.get("has_text")
-                entry["text_confidence"] = first_frame.get("text_confidence")
 
         manifest_segments.append(entry)
 

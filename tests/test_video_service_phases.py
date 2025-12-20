@@ -170,7 +170,7 @@ class TestUploadSegments:
     @patch("slides_extractor.video_service.cv2.imencode")
     @patch("slides_extractor.video_service.upload_to_s3")
     async def test_upload_segments_converts_rgb_to_bgr(
-        self, mock_upload, mock_imencode, text_detector
+        self, mock_upload, mock_imencode
     ):
         """Ensure frames are converted to BGR before encoding."""
 
@@ -263,9 +263,7 @@ class TestUploadSegments:
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.cv2.imencode")
     @patch("slides_extractor.video_service.upload_to_s3")
-    async def test_upload_segments_updates_progress(
-        self, mock_upload, mock_imencode, text_detector
-    ):
+    async def test_upload_segments_updates_progress(self, mock_upload, mock_imencode):
         """Test that progress updates during upload."""
         from slides_extractor.video_service import JOBS, JOBS_LOCK
 
@@ -277,7 +275,7 @@ class TestUploadSegments:
             Segment(type="static", representative_frame=frame, frames=[1]),
         ]
 
-        await _upload_segments(segments, "video-id", text_detector)
+        await _upload_segments(segments, "video-id")
 
         async with JOBS_LOCK:
             assert "video-id" in JOBS
@@ -356,7 +354,6 @@ class TestExtractAndProcessFramesIntegration:
         assert mock_upload_s3.called
 
     @pytest.mark.asyncio
-    @patch("slides_extractor.video_service._get_text_detector")
     @patch("slides_extractor.video_service._detect_static_segments")
     async def test_full_pipeline_no_segments(self, mock_detect):
         """Test pipeline when no segments are detected."""
