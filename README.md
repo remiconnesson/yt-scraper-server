@@ -99,7 +99,7 @@ To deploy the application to Kubernetes:
       --from-literal=DATACENTER_PROXY=DATACENTER_PROXY
     ```
 
-3. **Build and push the image to the prviate local registry:**
+3. **Build and push the image to the private local registry:**
 
     ```bash
     TAG=v0.0.0
