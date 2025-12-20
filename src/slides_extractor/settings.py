@@ -32,27 +32,6 @@ def _parse_retention_hours(raw_value: str | None, default: int = 24) -> int:
         return default
 
 
-def _parse_text_input_size(
-    raw_value: str | None, default: tuple[int, int] = (640, 320)
-) -> tuple[int, int]:
-    """Parse TEXT_INPUT_SIZE from env, accepting comma or 'x' separators."""
-
-    if not raw_value:
-        return default
-
-    normalized = raw_value.lower().replace("x", ",")
-    parts = [part.strip() for part in normalized.split(",") if part.strip()]
-    if len(parts) != 2:
-        return default
-
-    try:
-        width, height = (int(part) for part in parts)
-    except ValueError:
-        return default
-
-    return width, height
-
-
 # Load environment variables
 load_dotenv()
 
@@ -89,6 +68,3 @@ S3_ENDPOINT = os.getenv("S3_ENDPOINT")
 S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY")
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "slides-extractor")
 API_PASSWORD = os.getenv("API_PASSWORD")
-EAST_MODEL_PATH = os.getenv("EAST_MODEL_PATH", "models/frozen_east_text_detection.pb")
-TEXT_CONF_THRESHOLD = float(os.getenv("TEXT_CONF_THRESHOLD", "0.1"))
-TEXT_INPUT_SIZE = _parse_text_input_size(os.getenv("TEXT_INPUT_SIZE"))
