@@ -1,7 +1,7 @@
 """Unit tests for video_service.py phase functions."""
 
 import asyncio
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import cv2
 import numpy as np
@@ -16,13 +16,6 @@ from slides_extractor.video_service import (
 )
 from slides_extractor.settings import SLIDE_IMAGE_QUALITY
 from slides_extractor.extract_slides.video_analyzer import Segment
-
-
-@pytest.fixture
-def text_detector():
-    detector = Mock()
-    detector.detect.return_value = (True, 0.5, 0.01, 0.01, [])
-    return detector
 
 
 class TestDetectStaticSegments:
@@ -117,9 +110,7 @@ class TestUploadSegments:
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.cv2.imencode")
     @patch("slides_extractor.video_service.upload_to_s3")
-    async def test_upload_segments_success(
-        self, mock_upload, mock_imencode, text_detector
-    ):
+    async def test_upload_segments_success(self, mock_upload, mock_imencode):
         """Test successful upload of segment frames."""
         mock_upload.return_value = (
             "https://s3-endpoint/bucket/video/abc/images/frame.webp"
@@ -146,7 +137,7 @@ class TestUploadSegments:
             ),
         ]
 
-        metadata = await _upload_segments(segments, "video-abc", text_detector)
+        metadata = await _upload_segments(segments, "video-abc")
 
         assert len(metadata) == 2
         assert metadata[0]["segment_id"] == 1
@@ -154,8 +145,6 @@ class TestUploadSegments:
         assert metadata[0]["end_time"] == 5.0
         assert metadata[0]["duration"] == 5.0
         assert metadata[0]["frame_count"] == 3
-        assert metadata[0]["first_frame"]["has_text"] is True
-        assert metadata[0]["first_frame"]["text_confidence"] == pytest.approx(0.5)
         assert (
             metadata[0]["first_frame"]["frame_id"] == "static_frame_000001_first.webp"
         )
@@ -176,7 +165,6 @@ class TestUploadSegments:
             SLIDE_IMAGE_QUALITY,
         ]
         assert mock_upload.call_args.kwargs.get("content_type") == "image/webp"
-        assert text_detector.detect.call_count == 4
 
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.cv2.imencode")
@@ -203,7 +191,7 @@ class TestUploadSegments:
             ),
         ]
 
-        await _upload_segments(segments, "video-abc", text_detector)
+        await _upload_segments(segments, "video-abc")
 
         called_frame = mock_imencode.call_args_list[0][0][1]
         assert called_frame.shape == frame.shape
@@ -212,9 +200,7 @@ class TestUploadSegments:
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.cv2.imencode")
     @patch("slides_extractor.video_service.upload_to_s3")
-    async def test_upload_segments_correct_blob_keys(
-        self, mock_upload, mock_imencode, text_detector
-    ):
+    async def test_upload_segments_correct_blob_keys(self, mock_upload, mock_imencode):
         """Test that blob keys are formatted correctly."""
         mock_upload.return_value = "https://s3-endpoint/bucket/url"
         mock_imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
@@ -231,7 +217,7 @@ class TestUploadSegments:
             ),
         ]
 
-        await _upload_segments(segments, "my-video-id", text_detector)
+        await _upload_segments(segments, "my-video-id")
 
         # Verify blob key format
         keys = {call_args[0][1] for call_args in mock_upload.call_args_list}
@@ -244,7 +230,9 @@ class TestUploadSegments:
     @patch("slides_extractor.video_service.cv2.imencode")
     @patch("slides_extractor.video_service.upload_to_s3")
     async def test_upload_segments_includes_metadata(
-        self, mock_upload, mock_imencode, text_detector
+        self,
+        mock_upload,
+        mock_imencode,
     ):
         """Test that blob metadata is included."""
         mock_upload.return_value = "https://s3-endpoint/bucket/url"
@@ -262,7 +250,7 @@ class TestUploadSegments:
             ),
         ]
 
-        await _upload_segments(segments, "video-id", text_detector)
+        await _upload_segments(segments, "video-id")
 
         call_args = mock_upload.call_args_list[0]
         metadata = call_args[1]["metadata"]
@@ -270,78 +258,7 @@ class TestUploadSegments:
         assert metadata["segment_id"] == "1"
         assert metadata["start_time"] == "1.5"
         assert metadata["end_time"] == "6.5"
-        assert metadata["has_text"] == "true"
-        assert metadata["text_conf"] == "0.5000"
         assert metadata["frame_position"] == "first"
-        assert "text_total_area_ratio" in metadata
-
-    @pytest.mark.asyncio
-    @patch("slides_extractor.video_service.update_job_status", new_callable=AsyncMock)
-    @patch("slides_extractor.video_service.cv2.imencode")
-    @patch("slides_extractor.video_service.upload_to_s3")
-    async def test_upload_segments_skips_low_confidence(
-        self, mock_upload, mock_imencode, mock_update_status, text_detector
-    ):
-        """Frames without detected text should still upload but be flagged."""
-
-        expected_key = "video/video-id/static_frames/static_frame_000001_first.webp"
-        expected_url = f"s3://slides-extractor/{expected_key}"
-        text_detector.detect.return_value = (False, 0.02, 0.0, 0.0, [])
-        mock_imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
-        mock_upload.return_value = expected_url
-
-        frame = np.zeros((10, 10, 3), dtype=np.uint8)
-        segments = [
-            Segment(
-                type="static",
-                start_time=0.0,
-                end_time=1.0,
-                representative_frame=frame,
-                frames=[1],
-            ),
-        ]
-
-        metadata = await _upload_segments(segments, "video-id", text_detector)
-
-        assert metadata == [
-            {
-                "segment_id": 1,
-                "start_time": 0.0,
-                "end_time": 1.0,
-                "duration": 1.0,
-                "frame_count": 1,
-                "first_frame": {
-                    "frame_id": "static_frame_000001_first.webp",
-                    "has_text": False,
-                    "text_confidence": pytest.approx(0.02),
-                    "text_total_area_ratio": 0.0,
-                    "text_largest_area_ratio": 0.0,
-                    "text_box_count": 0,
-                    "duplicate_of": None,
-                    "skip_reason": "no_text",
-                    "s3_key": expected_key,
-                    "s3_bucket": "slides-extractor",
-                    "s3_uri": "s3://slides-extractor/" + expected_key,
-                    "url": expected_url,
-                },
-                "last_frame": {
-                    "frame_id": None,
-                    "has_text": False,
-                    "text_confidence": 0.0,
-                    "text_total_area_ratio": 0.0,
-                    "text_largest_area_ratio": 0.0,
-                    "text_box_count": 0,
-                    "duplicate_of": None,
-                    "skip_reason": "missing_frame",
-                    "s3_key": None,
-                    "s3_bucket": None,
-                    "s3_uri": None,
-                    "url": None,
-                },
-            }
-        ]
-        mock_upload.assert_called_once()
-        mock_update_status.assert_awaited()
 
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.cv2.imencode")
@@ -386,10 +303,9 @@ class TestExtractAndProcessFramesIntegration:
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.upload_to_s3")
     @patch("slides_extractor.video_service._upload_segments")
-    @patch("slides_extractor.video_service._get_text_detector")
     @patch("slides_extractor.video_service._detect_static_segments")
     async def test_full_pipeline_success(
-        self, mock_detect, mock_text_detector, mock_upload, mock_upload_s3
+        self, mock_detect, mock_upload, mock_upload_s3
     ):
         """Test the full orchestration of detection and upload phases."""
         # Mock each phase
@@ -423,13 +339,6 @@ class TestExtractAndProcessFramesIntegration:
         ]
         mock_upload.return_value = metadata
         mock_upload_s3.return_value = "https://s3-endpoint/bucket/manifest.json"
-        mock_text_detector.return_value.detect.return_value = (
-            True,
-            0.75,
-            0.02,
-            0.02,
-            [],
-        )
 
         # Import here to avoid circular dependency issues
         from slides_extractor.video_service import extract_and_process_frames
@@ -441,7 +350,6 @@ class TestExtractAndProcessFramesIntegration:
         mock_upload.assert_called_once_with(
             segments,
             "video-id",
-            mock_text_detector.return_value,
             local_output_dir=None,
         )
         # Verify manifest upload
@@ -450,7 +358,7 @@ class TestExtractAndProcessFramesIntegration:
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service._get_text_detector")
     @patch("slides_extractor.video_service._detect_static_segments")
-    async def test_full_pipeline_no_segments(self, mock_detect, mock_text_detector):
+    async def test_full_pipeline_no_segments(self, mock_detect):
         """Test pipeline when no segments are detected."""
         from slides_extractor.video_service import (
             extract_and_process_frames,
@@ -459,13 +367,6 @@ class TestExtractAndProcessFramesIntegration:
         )
 
         mock_detect.return_value = ([], [], 100)
-        mock_text_detector.return_value.detect.return_value = (
-            False,
-            0.0,
-            0.0,
-            0.0,
-            [],
-        )
 
         result = await extract_and_process_frames("/tmp/video.mp4", "video-id")
 
@@ -617,8 +518,6 @@ class TestBuildSegmentsManifest:
                             "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000001_last.webp",
                         },
                         "url": "https://example.com/static_frame_000001.webp",
-                        "has_text": None,
-                        "text_confidence": None,
                     },
                     {
                         "kind": "moving",
@@ -646,8 +545,6 @@ class TestBuildSegmentsManifest:
                             "s3_uri": "s3://bucket-1/video/vid-123/static_frames/static_frame_000002_last.webp",
                         },
                         "url": "https://example.com/static_frame_000002.webp",
-                        "has_text": None,
-                        "text_confidence": None,
                     },
                 ]
             }
@@ -658,74 +555,6 @@ class TestBuildSegmentsManifest:
         manifest_copy[video_id].pop("updated_at", None)
 
         assert manifest_copy == expected
-
-    def test_manifest_includes_text_confidence_for_all_static_segments(self):
-        """Text confidence and flags are present even when no frame is uploaded."""
-
-        video_id = "vid-456"
-        segments = [
-            Segment(type="static", start_time=0.0, end_time=1.0, frames=[]),
-            Segment(type="moving", start_time=1.0, end_time=2.0, frames=[]),
-        ]
-
-        static_metadata = [
-            {
-                "first_frame": {
-                    "frame_id": None,
-                    "url": None,
-                    "s3_key": None,
-                    "s3_bucket": None,
-                    "s3_uri": None,
-                    "has_text": False,
-                    "text_confidence": 0.1234,
-                },
-                "last_frame": {
-                    "frame_id": None,
-                    "url": None,
-                    "s3_key": None,
-                    "s3_bucket": None,
-                    "s3_uri": None,
-                },
-            }
-        ]
-
-        manifest = _build_segments_manifest(video_id, segments, static_metadata)
-
-        static_entry = manifest[video_id]["segments"][0]
-        assert static_entry["kind"] == "static"
-        assert static_entry["has_text"] is False
-        assert static_entry["text_confidence"] == pytest.approx(0.1234)
-        assert static_entry["first_frame"]["frame_id"] is None
-
-    def test_manifest_omits_text_boxes(self):
-        """Uploaded manifest should not include raw text box coordinates."""
-
-        video_id = "vid-789"
-        segments = [Segment(type="static", start_time=0.0, end_time=1.0, frames=[])]
-        static_metadata = [
-            {
-                "first_frame": {
-                    "frame_id": "static_frame_000001_first.webp",
-                    "url": "https://example.com/static_frame_000001.webp",
-                    "s3_key": "video/vid-789/static_frames/static_frame_000001_first.webp",
-                    "s3_bucket": "bucket-2",
-                    "s3_uri": "s3://bucket-2/video/vid-789/static_frames/static_frame_000001_first.webp",
-                    "text_boxes": [[1152, 72, 1271, 145]],
-                },
-                "last_frame": {
-                    "frame_id": "static_frame_000001_last.webp",
-                    "url": "https://example.com/static_frame_000001.webp",
-                    "s3_key": "video/vid-789/static_frames/static_frame_000001_last.webp",
-                    "s3_bucket": "bucket-2",
-                    "s3_uri": "s3://bucket-2/video/vid-789/static_frames/static_frame_000001_last.webp",
-                },
-            }
-        ]
-
-        manifest = _build_segments_manifest(video_id, segments, static_metadata)
-
-        static_entry = manifest[video_id]["segments"][0]
-        assert "text_boxes" not in static_entry
 
 
 class TestExtractAndProcessFramesManifestUpload:
@@ -747,10 +576,9 @@ class TestExtractAndProcessFramesManifestUpload:
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.upload_to_s3")
     @patch("slides_extractor.video_service._upload_segments")
-    @patch("slides_extractor.video_service._get_text_detector")
     @patch("slides_extractor.video_service._detect_static_segments")
     async def test_manifest_upload_key_and_job_status(
-        self, mock_detect, mock_text_detector, mock_upload_segments, mock_upload_to_s3
+        self, mock_detect, mock_upload_segments, mock_upload_to_s3
     ):
         """Manifest uploads use expected key and propagate metadata URL."""
 
@@ -789,13 +617,6 @@ class TestExtractAndProcessFramesManifestUpload:
 
         mock_upload_to_s3.return_value = (
             f"s3://{S3_BUCKET_NAME}/video/vid/video_segments.json"
-        )
-        mock_text_detector.return_value.detect.return_value = (
-            True,
-            0.9,
-            0.03,
-            0.03,
-            [],
         )
 
         await extract_and_process_frames("/tmp/video.mp4", "vid")
