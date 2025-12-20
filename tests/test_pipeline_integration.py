@@ -47,7 +47,9 @@ async def test_full_pipeline_with_test_blob():
             ),
         ):
             if not os.getenv("BLOB_READ_WRITE_TOKEN"):
-                pytest.skip("BLOB_READ_WRITE_TOKEN not set, skipping real Blob integration test")
+                pytest.skip(
+                    "BLOB_READ_WRITE_TOKEN not set, skipping real Blob integration test"
+                )
 
             try:
                 metadata = await extract_and_process_frames(video_path, video_id)
@@ -77,9 +79,7 @@ async def test_full_pipeline_local_save():
 
         assert len(metadata) == 3
         # Check files exist on disk
-        assert os.path.exists(
-            os.path.join(output_dir, "manifests", video_id)
-        )
+        assert os.path.exists(os.path.join(output_dir, "manifests", video_id))
         assert os.path.exists(
             os.path.join(
                 output_dir,

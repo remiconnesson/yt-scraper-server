@@ -3,7 +3,6 @@
 import asyncio
 from unittest.mock import Mock, patch
 
-import cv2
 import numpy as np
 import pytest
 
@@ -13,7 +12,6 @@ from slides_extractor.video_service import (
     _build_segments_manifest,
     JobStatus,
 )
-from slides_extractor.settings import SLIDE_IMAGE_QUALITY
 from slides_extractor.extract_slides.video_analyzer import Segment
 
 
@@ -156,7 +154,7 @@ class TestUploadSegments:
         # In this test, all frames are the same 'frame' (zeros).
         # So only the very first one should be uploaded.
         assert mock_upload.call_count == 1
-        assert mock_imencode.call_count == 4 # still encodes all to check hashes
+        assert mock_imencode.call_count == 4  # still encodes all to check hashes
 
     @pytest.mark.asyncio
     @patch("slides_extractor.video_service.cv2.imencode")
@@ -213,7 +211,7 @@ class TestUploadSegments:
 
         # Verify blob path format
         paths = {call_args[0][1] for call_args in mock_upload.call_args_list}
-        # My implementation deduplicates, and since representative_frame == last_frame, 
+        # My implementation deduplicates, and since representative_frame == last_frame,
         # only the first one is uploaded.
         assert paths == {
             "slides/my-video-id/1-first.webp",
