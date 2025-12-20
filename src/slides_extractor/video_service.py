@@ -86,7 +86,7 @@ async def upload_to_blob(data: bytes, path: str, content_type: str) -> str:
     """Upload data to Vercel Blob Storage asynchronously."""
     client = AsyncBlobClient()
     response = await client.put(
-        path, data, content_type=content_type, add_random_suffix=False
+        path, data, content_type=content_type, add_random_suffix=False, overwrite=True
     )
     return response.url
 
