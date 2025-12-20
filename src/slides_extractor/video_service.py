@@ -69,11 +69,6 @@ from slides_extractor.extract_slides.video_analyzer import (
     Segment,
     SegmentDetector,
 )
-from slides_extractor.extract_slides.text_detection import (
-    MIN_LARGEST_BOX_RATIO,
-    MIN_TOTAL_AREA_RATIO,
-    TextDetector,
-)
 from slides_extractor.settings import (
     S3_ACCESS_KEY,
     S3_BUCKET_NAME,
@@ -113,7 +108,6 @@ JOBS: dict[str, dict[str, Any]] = {}
 JOBS_LOCK = asyncio.Lock()
 _S3_CLIENT = None
 _NORMALIZED_S3_ENDPOINT: str | None = None
-_TEXT_DETECTOR: TextDetector | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -305,15 +299,6 @@ async def stream_job_progress(video_id: str) -> AsyncGenerator[str, None]:
         await asyncio.sleep(1)
 
 
-def _get_text_detector() -> TextDetector:
-    """Lazily initialize a shared TextDetector instance."""
-
-    global _TEXT_DETECTOR
-    if _TEXT_DETECTOR is None:
-        _TEXT_DETECTOR = TextDetector()
-    return _TEXT_DETECTOR
-
-
 async def _detect_static_segments(
     video_path: str, video_id: str
 ) -> tuple[list[Segment], list[Segment], Optional[int]]:
@@ -359,7 +344,6 @@ async def _detect_static_segments(
 async def _upload_segments(
     segments: list[Segment],
     video_id: str,
-    text_detector: TextDetector,
     local_output_dir: Optional[str] = None,
     dedup_threshold: int = 5,
 ) -> list[dict[str, Any]]:
@@ -413,23 +397,6 @@ async def _upload_segments(
                 continue
 
             bgr_frame = cv2.cvtColor(frame_img, cv2.COLOR_RGB2BGR)
-            (
-                has_text,
-                text_confidence,
-                total_ratio,
-                largest_ratio,
-                boxes,
-            ) = text_detector.detect(bgr_frame)
-
-            skip_reason: str | None = None
-            if not has_text:
-                if not boxes:
-                    skip_reason = "no_text"
-                elif (
-                    total_ratio < MIN_TOTAL_AREA_RATIO
-                    and largest_ratio < MIN_LARGEST_BOX_RATIO
-                ):
-                    skip_reason = "area"
 
             frame_hash = _compute_frame_hash(frame_img)
             duplicate_of: tuple[int, str] | None = None
@@ -449,18 +416,12 @@ async def _upload_segments(
                 "frame_position": position,
                 "start_time": str(segment.start_time),
                 "end_time": str(segment.end_time),
-                "has_text": str(has_text).lower(),
-                "text_conf": f"{text_confidence:.4f}",
-                "text_box_count": str(len(boxes)),
             }
 
-            if skip_reason:
-                metadata["skip_reason"] = skip_reason
             if duplicate_of is not None:
+                # TODO: check if the off-by-one error is coming frome here
                 origin_idx, origin_position = duplicate_of
                 metadata["duplicate_of"] = f"{origin_idx}:{origin_position}"
-            metadata["text_total_area_ratio"] = f"{total_ratio:.6f}"
-            metadata["text_largest_area_ratio"] = f"{largest_ratio:.6f}"
 
             success, buffer = cv2.imencode(
                 ".webp", bgr_frame, [cv2.IMWRITE_WEBP_QUALITY, SLIDE_IMAGE_QUALITY]
@@ -492,18 +453,12 @@ async def _upload_segments(
             image_meta.update(
                 {
                     "frame_id": frame_id,
-                    "has_text": has_text,
-                    "text_confidence": text_confidence,
-                    "text_total_area_ratio": total_ratio,
-                    "text_largest_area_ratio": largest_ratio,
-                    "text_box_count": len(boxes),
                     "duplicate_of": {
                         "segment_id": duplicate_of[0],
                         "frame_position": duplicate_of[1],
                     }
                     if duplicate_of is not None
                     else None,
-                    "skip_reason": skip_reason,
                     "s3_key": s3_key,
                     "s3_bucket": bucket_name,
                     "s3_uri": uri,
@@ -569,7 +524,6 @@ async def extract_and_process_frames(
 ) -> list[dict[str, Any]]:
     """Orchestrate frame extraction and upload pipeline."""
 
-    text_detector = _get_text_detector()
     static_segments, all_segments, total_frames_seen = await _detect_static_segments(
         video_path, video_id
     )
@@ -587,7 +541,6 @@ async def extract_and_process_frames(
     segment_metadata = await _upload_segments(
         static_segments,
         video_id,
-        text_detector,
         local_output_dir=local_output_dir,
     )
 

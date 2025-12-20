@@ -30,9 +30,6 @@ ENV UV_COMPILE_BYTECODE=1
 # Place executables in the environment at the front of the path
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Download the EAST text detection model with the correct ownership
-ADD --chown=appuser:appuser https://github.com/oyyd/frozen_east_text_detection.pb/raw/master/frozen_east_text_detection.pb /app/models/frozen_east_text_detection.pb
-
 # Copy dependency files
 COPY --chown=appuser:appuser pyproject.toml uv.lock ./
 
