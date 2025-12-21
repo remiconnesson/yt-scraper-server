@@ -31,7 +31,6 @@ def process_video_task(
         update_job_status(
             video_id,
             JobStatus.pending,
-            0.0,
             "Processing started",
         )
     )
@@ -60,7 +59,6 @@ def process_video_task(
                             update_job_status(
                                 video_id,
                                 JobStatus.failed,
-                                0.0,
                                 "Video download failed",
                                 error=str(result.error),
                             )
@@ -94,7 +92,6 @@ def process_video_task(
                         update_job_status(
                             video_id,
                             JobStatus.failed,
-                            0.0,
                             "Slide extraction failed",
                             error=str(exc),
                         )
@@ -116,7 +113,6 @@ def process_video_task(
                     update_job_status(
                         video_id,
                         JobStatus.failed,
-                        0.0,
                         "Unable to resolve video stream URL",
                     )
                 )
@@ -138,7 +134,6 @@ def process_video_task(
                 update_job_status(
                     video_id,
                     JobStatus.failed,
-                    0.0,
                     "Job failed before slide extraction",
                     error=str(exc),
                 )

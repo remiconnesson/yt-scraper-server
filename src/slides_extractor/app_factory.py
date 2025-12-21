@@ -236,7 +236,6 @@ async def process_youtube_video(video_id: str, background_tasks: BackgroundTasks
 
         JOBS[video_id] = {
             "status": JobStatus.pending,
-            "progress": 0.0,
             "message": "Job initialized",
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -246,7 +245,6 @@ async def process_youtube_video(video_id: str, background_tasks: BackgroundTasks
         job_state = await update_job_status(
             video_id,
             status=JobStatus.completed,
-            progress=100.0,
             message="Job already completed",
             metadata_uri=metadata_uri,
         )
@@ -261,7 +259,6 @@ async def process_youtube_video(video_id: str, background_tasks: BackgroundTasks
     await update_job_status(
         video_id,
         status=JobStatus.pending,
-        progress=0.0,
         message="Job accepted",
     )
     background_tasks.add_task(process_video_task, video_url, video_id)
@@ -289,7 +286,6 @@ async def get_job(video_id: str) -> dict[str, Any]:
             job = await update_job_status(
                 video_id,
                 status=JobStatus.completed,
-                progress=100.0,
                 message="Job already completed",
                 metadata_uri=metadata_uri,
             )
