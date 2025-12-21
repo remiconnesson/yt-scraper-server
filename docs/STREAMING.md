@@ -160,10 +160,10 @@ eventSource.onmessage = (event) => {
   console.log(`Status: ${jobState.status} - ${jobState.message}`);
   
   // Show progress based on current phase
-  if (jobState.status === 'extracting' && jobState.frame_count) {
+  if (jobState.status === 'extracting' && jobState.current_frame && jobState.frame_count) {
     const percent = (jobState.current_frame / jobState.frame_count) * 100;
     console.log(`Frame analysis: ${Math.round(percent)}% (${jobState.current_frame}/${jobState.frame_count} frames)`);
-  } else if (jobState.status === 'uploading' && jobState.total_slides) {
+  } else if (jobState.status === 'uploading' && jobState.slides_processed && jobState.total_slides) {
     const percent = (jobState.slides_processed / jobState.total_slides) * 100;
     console.log(`Upload: ${Math.round(percent)}% (${jobState.slides_processed}/${jobState.total_slides} slides)`);
   }
