@@ -24,7 +24,12 @@ A python package with several concerns:
 
    - `ZYTE_API_KEY` (required for Zyte proxy usage)
    - `ZYTE_HOST` (defaults to `api.zyte.com`)
-   - `DATACENTER_PROXY` (optional `user:pass@host:port` or full URL)
+   - `DATACENTER_PROXY` (optional, supports single or multiple comma-separated proxy IPs)
+     - Single proxy: `user:pass@host:port` or full URL `http://user:pass@host:port`
+     - Multiple proxies: `user:pass@host1:port,user:pass@host2:port,user:pass@host3:port`
+     - When multiple proxies are configured, the system will automatically rotate between them
+     - If a proxy fails (e.g., IP gets burnt by YouTube's bot detection), it will be temporarily excluded for 1 hour
+     - The system will retry downloads with different proxy IPs when available
    - `API_PASSWORD` (required for authenticating API requests)
    - `BLOB_READ_WRITE_TOKEN` (required for Vercel Blob upload)
 
@@ -52,6 +57,16 @@ Example request to start a download:
 curl -X POST "http://localhost:8000/process/youtube/dQw4w9WgXcQ" \
   -H "Authorization: Bearer $API_PASSWORD"
 ```
+
+### Proxy Rotation and Retry Behavior
+
+When multiple datacenter proxies are configured:
+
+- The system automatically rotates between available proxy IPs for each download
+- If a proxy fails (e.g., due to YouTube's bot detection), it is marked as "burnt" and temporarily excluded for 1 hour
+- Downloads automatically retry with different proxy IPs when available
+- The `/progress` endpoint will show `status: "retrying"` during proxy rotation attempts
+- Consumers can monitor the job's progress through the SSE stream at `/jobs/{video_id}/stream` to observe retry attempts
 
 ## Development workflow
 
@@ -96,8 +111,10 @@ To deploy the application to Kubernetes:
       --from-literal=ZYTE_API_KEY=your_zyte_api_key \
       --from-literal=BLOB_READ_WRITE_TOKEN=your_vercel_blob_token \
       --from-literal=API_PASSWORD=your_api_password \
-      --from-literal=DATACENTER_PROXY=DATACENTER_PROXY
+      --from-literal=DATACENTER_PROXY=user:pass@proxy1:port,user:pass@proxy2:port
     ```
+
+    **Note:** `DATACENTER_PROXY` now supports multiple comma-separated proxy IPs for automatic rotation and failover.
 
 3. **Build and push the image to the private local registry:**
 
