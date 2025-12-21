@@ -325,7 +325,9 @@ def download_file_parallel(
 
     path = os.path.join(DOWNLOAD_DIR, filename)
     proxy_manager = _get_proxy_manager()
-    max_retries = max(1, proxy_manager.get_proxy_count())
+    # Only retry if we have proxies configured
+    proxy_count = proxy_manager.get_proxy_count()
+    max_retries = proxy_count if proxy_count > 0 else 1
 
     for attempt in range(max_retries):
         proxies = _get_proxy_config()

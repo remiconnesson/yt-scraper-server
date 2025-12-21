@@ -101,9 +101,10 @@ class ProxyManager:
         with self._lock:
             if proxy in self._proxies:
                 self._burnt_ips[proxy] = time.time()
+                cooldown_hours = self.BURNT_IP_COOLDOWN_SECONDS // 3600
                 logger.warning(
                     f"Proxy marked as burnt: {self._mask_proxy(proxy)} "
-                    f"(will be excluded for {self.BURNT_IP_COOLDOWN_SECONDS}s)"
+                    f"(will be excluded for {cooldown_hours} hour(s))"
                 )
 
     def has_available_proxies(self) -> bool:
