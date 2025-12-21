@@ -40,7 +40,7 @@ Where `<json-payload>` is a JSON-serialized job state object.
 ### Example SSE Event
 
 ```http
-data: {"status": "extracting", "progress": 45.0, "message": "Analyzing frames: 12 segments, frame 1200/2400", "updated_at": "2023-12-20T23:03:00.123456+00:00", "frame_count": 2400}\n\n
+data: {"status": "extracting", "message": "Analyzing frames: 12 segments detected", "updated_at": "2023-12-20T23:03:00.123456+00:00", "frame_count": 2400, "current_frame": 1200}\n\n
 ```
 
 ## Type Definitions
@@ -54,9 +54,6 @@ interface JobState {
   /** Current processing status */
   status: "pending" | "downloading" | "extracting" | "uploading" | "completed" | "failed";
 
-  /** Progress percentage (0.0 to 100.0) */
-  progress: number;
-
   /** Human-readable status message */
   message: string;
 
@@ -64,13 +61,22 @@ interface JobState {
   updated_at: string;
 
   /** URL to job metadata (available when status is "completed") */
-  metadata_uri?: string;
+  metadata_uri?: string | null;
 
   /** Error message (available when status is "failed") */
-  error?: string;
+  error?: string | null;
 
-  /** Total number of frames processed */
-  frame_count?: number;
+  /** Total number of frames in the video */
+  frame_count?: number | null;
+
+  /** Current frame being processed (during extracting phase) */
+  current_frame?: number | null;
+
+  /** Number of slides processed so far (during uploading phase) */
+  slides_processed?: number | null;
+
+  /** Total number of slides to upload (during uploading phase) */
+  total_slides?: number | null;
 }
 ```
 
@@ -90,11 +96,12 @@ class JobStatus(str, Enum):
 
 ### Progress States
 
-The system tracks different types of progress:
+The system tracks job progress through specific fields depending on the status:
 
-1. **Overall Job Progress**: 0-100% completion (in JobState)
-2. **Download Progress**: Tracked separately in `job_tracker.py` for individual files
-3. **Frame Analysis Progress**: Detailed frame-by-frame progress during extraction
+1. **Overall Job Status**: Tracked via the `status` field (pending → downloading → extracting → uploading → completed/failed)
+2. **Download Progress**: Tracked separately in `job_tracker.py` for individual files via `/progress` endpoint
+3. **Frame Analysis Progress**: Tracked via `current_frame` and `frame_count` fields during extraction
+4. **Upload Progress**: Tracked via `slides_processed` and `total_slides` fields during upload
 
 ## Implementation Details
 
@@ -148,7 +155,18 @@ const eventSource = new EventSource(`/jobs/${videoId}/stream`);
 
 eventSource.onmessage = (event) => {
   const jobState = JSON.parse(event.data);
-  console.log(`Progress: ${jobState.progress}% - ${jobState.message}`);
+  
+  // Display status message
+  console.log(`Status: ${jobState.status} - ${jobState.message}`);
+  
+  // Show progress based on current phase
+  if (jobState.status === 'extracting' && jobState.frame_count) {
+    const percent = (jobState.current_frame / jobState.frame_count) * 100;
+    console.log(`Frame analysis: ${Math.round(percent)}% (${jobState.current_frame}/${jobState.frame_count} frames)`);
+  } else if (jobState.status === 'uploading' && jobState.total_slides) {
+    const percent = (jobState.slides_processed / jobState.total_slides) * 100;
+    console.log(`Upload: ${Math.round(percent)}% (${jobState.slides_processed}/${jobState.total_slides} slides)`);
+  }
 
   if (jobState.status === 'completed') {
     console.log('Job completed! Metadata:', jobState.metadata_uri);
@@ -182,7 +200,9 @@ eventSource.onerror = (error) => {
 
 1. **Reconnection**: Implement automatic reconnection logic for interrupted streams
 2. **Error Handling**: Handle both SSE errors and job failure states
-3. **Progress Display**: Use the `progress` field for progress bars
+3. **Progress Display**: 
+   - During `extracting`: Use `current_frame / frame_count` for progress bars
+   - During `uploading`: Use `slides_processed / total_slides` for progress bars
 4. **Status Messages**: Display `message` field for detailed status updates
 5. **Completion Handling**: Check `metadata_uri` when job completes for results
 
