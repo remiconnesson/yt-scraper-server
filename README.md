@@ -43,8 +43,8 @@ A python package with several concerns:
 | `/` | GET | Service status and quick links to other endpoints. |
 | `/process/youtube/{video_id}` | POST | Starts a background job to download video and audio streams for the given YouTube video ID. |
 | `/progress` | GET | Returns per-file download status, percent completion, and size information. |
-| `/jobs/{video_id}` | GET | Returns structured status for a specific job, including progress, messages, and metadata URLs when available. |
-| `/jobs/{video_id}/stream` | GET | Streams Server-Sent Events with job updates until completion or failure. |
+| `/jobs/{video_id}` | GET | Returns structured status for a specific job, including status, messages, and metadata URLs when available. See Job Status Structure below. |
+| `/jobs/{video_id}/stream` | GET | Streams Server-Sent Events with job updates until completion or failure. See Job Status Structure below. |
 
 Example request to start a download:
 
@@ -52,6 +52,64 @@ Example request to start a download:
 curl -X POST "http://localhost:8000/process/youtube/dQw4w9WgXcQ" \
   -H "Authorization: Bearer $API_PASSWORD"
 ```
+
+## Job Status Structure
+
+The `/jobs/{video_id}` and `/jobs/{video_id}/stream` endpoints return job status updates with the following structure:
+
+```json
+{
+  "status": "extracting",
+  "message": "Analyzing frames: 42 segments detected",
+  "updated_at": "2025-12-21T15:36:34.590Z",
+  "metadata_uri": null,
+  "error": null,
+  "frame_count": 1000,
+  "current_frame": 542,
+  "slides_processed": null,
+  "total_slides": null
+}
+```
+
+### Job Status Lifecycle
+
+Jobs progress through the following status values in order:
+
+1. **`pending`**: Job has been accepted and is waiting to start
+   - Fields: `status`, `message`, `updated_at`
+
+2. **`downloading`**: Video streams are being downloaded (handled by downloader module)
+   - Fields: Same as pending, plus download progress tracked separately via `/progress` endpoint
+
+3. **`extracting`**: Frames are being analyzed to detect slide segments
+   - Fields: `frame_count` (total frames in video), `current_frame` (current frame being analyzed)
+   - Updates sent approximately every 100 frames
+
+4. **`uploading`**: Detected slides are being uploaded to storage
+   - Fields: `slides_processed` (number of slides uploaded), `total_slides` (total slides to upload)
+   - Updates sent after each slide is processed
+
+5. **`completed`**: All processing finished successfully
+   - Fields: `metadata_uri` (URL to manifest JSON with all slide metadata), `frame_count`
+
+6. **`failed`**: Processing encountered an error
+   - Fields: `error` (description of what went wrong)
+
+### Field Descriptions
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `status` | string | Current job status (see lifecycle above) |
+| `message` | string | Human-readable status message |
+| `updated_at` | string | ISO 8601 timestamp of last update |
+| `metadata_uri` | string\|null | URL to manifest JSON (only set on completion) |
+| `error` | string\|null | Error description (only set on failure) |
+| `frame_count` | int\|null | Total frames in video (set during extracting phase) |
+| `current_frame` | int\|null | Current frame being analyzed (only during extracting) |
+| `slides_processed` | int\|null | Slides uploaded so far (only during uploading) |
+| `total_slides` | int\|null | Total slides to upload (only during uploading) |
+
+**Note**: Fields not applicable to the current status will be `null`.
 
 ## Development workflow
 
