@@ -59,15 +59,16 @@ The `/jobs/{video_id}` and `/jobs/{video_id}/stream` endpoints return job status
 
 ```json
 {
-  "status": "extracting",
-  "message": "Analyzing frames: 42 segments detected",
+  "status": "downloading",
+  "message": "Fetching video metadata using residential proxy",
   "updated_at": "2025-12-21T15:36:34.590Z",
   "metadata_uri": null,
   "error": null,
-  "frame_count": 1000,
-  "current_frame": 542,
+  "frame_count": null,
+  "current_frame": null,
   "slides_processed": null,
-  "total_slides": null
+  "total_slides": null,
+  "download_phase": "fetching_metadata"
 }
 ```
 
@@ -78,8 +79,12 @@ Jobs progress through the following status values in order:
 1. **`pending`**: Job has been accepted and is waiting to start
    - Fields: `status`, `message`, `updated_at`
 
-2. **`downloading`**: Video streams are being downloaded (handled by downloader module)
-   - Fields: Same as pending, plus download progress tracked separately via `/progress` endpoint
+2. **`downloading`**: Video streams are being downloaded
+   - **Substate `fetching_metadata`**: Fetching video metadata using residential proxy (Zyte)
+     - Fields: `download_phase` = "fetching_metadata"
+   - **Substate `downloading_video`**: Downloading video streams using datacenter/IPv6 proxy
+     - Fields: `download_phase` = "downloading_video"
+     - Additional progress tracked separately via `/progress` endpoint
 
 3. **`extracting`**: Frames are being analyzed to detect slide segments
    - Fields: `frame_count` (total frames in video), `current_frame` (current frame being analyzed)
@@ -93,7 +98,7 @@ Jobs progress through the following status values in order:
    - Fields: `metadata_uri` (URL to manifest JSON with all slide metadata), `frame_count`
 
 6. **`failed`**: Processing encountered an error
-   - Fields: `error` (description of what went wrong)
+   - Fields: `error` (description of what went wrong), `download_phase` (if failed during downloading)
 
 ### Field Descriptions
 
@@ -108,6 +113,7 @@ Jobs progress through the following status values in order:
 | `current_frame` | int\|null | Current frame being analyzed (only during extracting) |
 | `slides_processed` | int\|null | Slides uploaded so far (only during uploading) |
 | `total_slides` | int\|null | Total slides to upload (only during uploading) |
+| `download_phase` | string\|null | Download substate: "fetching_metadata" or "downloading_video" (only during downloading) |
 
 **Note**: Fields not applicable to the current status will be `null`.
 

@@ -117,6 +117,7 @@ async def update_job_status(
     current_frame: Optional[int] = None,
     slides_processed: Optional[int] = None,
     total_slides: Optional[int] = None,
+    download_phase: Optional[str] = None,
 ) -> dict[str, Any]:
     """Update the in-memory job status in a thread-safe manner.
 
@@ -135,6 +136,7 @@ async def update_job_status(
         current_frame: Optional current frame being processed during extraction.
         slides_processed: Optional count of slides processed during upload.
         total_slides: Optional total count of slides to be uploaded.
+        download_phase: Optional download substate (e.g., "fetching_metadata", "downloading_video").
 
     Returns:
         A copy of the updated job record stored in ``JOBS``.
@@ -154,6 +156,7 @@ async def update_job_status(
                 "current_frame": current_frame,
                 "slides_processed": slides_processed,
                 "total_slides": total_slides,
+                "download_phase": download_phase,
             },
         )
 
@@ -166,6 +169,7 @@ async def update_job_status(
         job_entry["current_frame"] = current_frame
         job_entry["slides_processed"] = slides_processed
         job_entry["total_slides"] = total_slides
+        job_entry["download_phase"] = download_phase
 
         return dict(job_entry)
 

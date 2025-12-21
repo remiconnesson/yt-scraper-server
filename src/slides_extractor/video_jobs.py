@@ -36,10 +36,29 @@ def process_video_task(
     )
     logger.info(f"Job Started: {video_url}")
     try:
+        # Phase 1: Fetching metadata using residential proxy (Zyte)
+        asyncio.run(
+            update_job_status(
+                video_id,
+                JobStatus.downloading,
+                "Fetching video metadata using residential proxy",
+                download_phase="fetching_metadata",
+            )
+        )
         vid_url, _, title = get_stream_urls(video_url)
 
         if vid_url:
             safe_title = _safe_title(title or "video")
+
+            # Phase 2: Downloading video using datacenter/IPv6 proxy
+            asyncio.run(
+                update_job_status(
+                    video_id,
+                    JobStatus.downloading,
+                    "Downloading video streams",
+                    download_phase="downloading_video",
+                )
+            )
 
             with ThreadPoolExecutor(max_workers=2) as executor:
                 video_future = executor.submit(
@@ -61,6 +80,7 @@ def process_video_task(
                                 JobStatus.failed,
                                 "Video download failed",
                                 error=str(result.error),
+                                download_phase="downloading_video",
                             )
                         )
                     except Exception:  # noqa: BLE001
@@ -113,7 +133,9 @@ def process_video_task(
                     update_job_status(
                         video_id,
                         JobStatus.failed,
-                        "Unable to resolve video stream URL",
+                        "Failed to resolve video stream URL using residential proxy",
+                        error="Unable to fetch video metadata",
+                        download_phase="fetching_metadata",
                     )
                 )
             except Exception:  # noqa: BLE001

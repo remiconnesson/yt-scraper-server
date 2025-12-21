@@ -40,7 +40,7 @@ Where `<json-payload>` is a JSON-serialized job state object.
 ### Example SSE Event
 
 ```http
-data: {"status": "extracting", "message": "Analyzing frames: 12 segments detected", "updated_at": "2023-12-20T23:03:00.123456+00:00", "frame_count": 2400, "current_frame": 1200}\n\n
+data: {"status": "downloading", "message": "Fetching video metadata using residential proxy", "updated_at": "2023-12-20T23:03:00.123456+00:00", "download_phase": "fetching_metadata"}\n\n
 ```
 
 ## Type Definitions
@@ -77,6 +77,9 @@ interface JobState {
 
   /** Total number of slides to upload (during uploading phase) */
   total_slides?: number | null;
+
+  /** Download substate: "fetching_metadata" or "downloading_video" (during downloading phase) */
+  download_phase?: string | null;
 }
 ```
 
@@ -99,9 +102,12 @@ class JobStatus(str, Enum):
 The system tracks job progress through specific fields depending on the status:
 
 1. **Overall Job Status**: Tracked via the `status` field (pending → downloading → extracting → uploading → completed/failed)
-2. **Download Progress**: Tracked separately in `job_tracker.py` for individual files via `/progress` endpoint
-3. **Frame Analysis Progress**: Tracked via `current_frame` and `frame_count` fields during extraction
-4. **Upload Progress**: Tracked via `slides_processed` and `total_slides` fields during upload
+2. **Download Substates**: Tracked via `download_phase` field during downloading status
+   - `fetching_metadata`: Using residential proxy to fetch video metadata
+   - `downloading_video`: Using datacenter/IPv6 proxy to download video streams
+3. **Download Progress**: Tracked separately in `job_tracker.py` for individual files via `/progress` endpoint
+4. **Frame Analysis Progress**: Tracked via `current_frame` and `frame_count` fields during extraction
+5. **Upload Progress**: Tracked via `slides_processed` and `total_slides` fields during upload
 
 ## Implementation Details
 
@@ -160,7 +166,9 @@ eventSource.onmessage = (event) => {
   console.log(`Status: ${jobState.status} - ${jobState.message}`);
   
   // Show progress based on current phase
-  if (jobState.status === 'extracting' && jobState.current_frame && jobState.frame_count > 0) {
+  if (jobState.status === 'downloading' && jobState.download_phase) {
+    console.log(`Download phase: ${jobState.download_phase}`);
+  } else if (jobState.status === 'extracting' && jobState.current_frame && jobState.frame_count > 0) {
     const percent = (jobState.current_frame / jobState.frame_count) * 100;
     console.log(`Frame analysis: ${Math.round(percent)}% (${jobState.current_frame}/${jobState.frame_count} frames)`);
   } else if (jobState.status === 'uploading' && jobState.slides_processed && jobState.total_slides > 0) {
@@ -173,6 +181,9 @@ eventSource.onmessage = (event) => {
     eventSource.close();
   } else if (jobState.status === 'failed') {
     console.error('Job failed:', jobState.error);
+    if (jobState.download_phase) {
+      console.error('Failed during download phase:', jobState.download_phase);
+    }
     eventSource.close();
   }
 };
@@ -201,10 +212,12 @@ eventSource.onerror = (error) => {
 1. **Reconnection**: Implement automatic reconnection logic for interrupted streams
 2. **Error Handling**: Handle both SSE errors and job failure states
 3. **Progress Display**: 
+   - During `downloading`: Display download phase (fetching metadata vs downloading video)
    - During `extracting`: Use `current_frame / frame_count` for progress bars
    - During `uploading`: Use `slides_processed / total_slides` for progress bars
 4. **Status Messages**: Display `message` field for detailed status updates
 5. **Completion Handling**: Check `metadata_uri` when job completes for results
+6. **Error Context**: Check `download_phase` on failure to understand which phase failed
 
 
 ## Call Chain for job_entry['metadata_uri'] and job_entry['frame_count']
