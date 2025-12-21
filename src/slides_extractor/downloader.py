@@ -193,7 +193,7 @@ def get_stream_urls(
 
 def _get_proxy_config() -> Dict[str, str]:
     """Get the next available proxy from the proxy manager.
-    
+
     Returns:
         A dictionary with 'http' and 'https' keys, or empty dict if no proxy available.
     """
@@ -319,18 +319,18 @@ def download_file_parallel(
     url: str, filename: str, num_threads: int = VIDEO_DOWNLOAD_THREADS
 ) -> DownloadResult:
     """Download a file using multiple threads, falling back to single-threaded mode.
-    
+
     Retries with different proxy IPs if available when download fails.
     """
 
     path = os.path.join(DOWNLOAD_DIR, filename)
     proxy_manager = _get_proxy_manager()
     max_retries = max(1, proxy_manager.get_proxy_count())
-    
+
     for attempt in range(max_retries):
         proxies = _get_proxy_config()
         connection_mode = "Proxy" if proxies else "Direct"
-        
+
         if attempt > 0:
             logger.info(
                 f"Retry {attempt}/{max_retries - 1} for {filename} "
@@ -340,7 +340,7 @@ def download_file_parallel(
             logger.info(f"Using {connection_mode} connection for {filename}")
 
         headers = _get_default_headers()
-        
+
         try:
             total_size = get_file_size(url, headers, proxies)
         except Exception as exc:
@@ -349,7 +349,9 @@ def download_file_parallel(
                 _mark_proxy_burnt(proxies)
             if attempt < max_retries - 1:
                 continue
-            return DownloadResult(success=False, error=f"Failed to get file size: {exc}")
+            return DownloadResult(
+                success=False, error=f"Failed to get file size: {exc}"
+            )
 
         if _should_use_single_thread(total_size):
             logger.warning(f"Size {total_size} too small/unknown. Using Single Thread.")
@@ -367,7 +369,7 @@ def download_file_parallel(
         temp_parts = _download_chunks_parallel(
             url, filename, total_size, num_threads, proxies, headers
         )
-        
+
         if temp_parts is None:
             logger.error(f"Parallel download failed for {filename}")
             if proxies and attempt < max_retries - 1:
@@ -380,25 +382,26 @@ def download_file_parallel(
         update_progress(filename, status="complete")
         logger.info(f"SAVED: {filename}")
         return DownloadResult(success=True, path=path)
-    
-    return DownloadResult(
-        success=False, 
-        error="All proxy attempts exhausted"
-    )
+
+    return DownloadResult(success=False, error="All proxy attempts exhausted")
 
 
 def download_file_single(
-    url: str, filename: str, proxies: Dict[str, str], attempt: int = 0, max_retries: int = 1
+    url: str,
+    filename: str,
+    proxies: Dict[str, str],
+    attempt: int = 0,
+    max_retries: int = 1,
 ) -> DownloadResult:
     """Download a file using a single thread.
-    
+
     Args:
         url: URL to download from
         filename: Name of the file to save
         proxies: Proxy configuration to use
         attempt: Current retry attempt number
         max_retries: Maximum number of retry attempts
-    
+
     Returns:
         DownloadResult indicating success or failure
     """
@@ -412,7 +415,7 @@ def download_file_single(
         )
     else:
         logger.info(f"SINGLE THREAD START: {filename}")
-    
+
     try:
         with requests.get(
             url, headers=headers, proxies=proxies, stream=True, timeout=(20, 120)

@@ -68,7 +68,9 @@ class ProxyManager:
                 if current_time - burnt_time > self.BURNT_IP_COOLDOWN_SECONDS
             ]
             for proxy in expired_ips:
-                logger.info(f"Proxy cooldown expired, re-enabling: {self._mask_proxy(proxy)}")
+                logger.info(
+                    f"Proxy cooldown expired, re-enabling: {self._mask_proxy(proxy)}"
+                )
                 del self._burnt_ips[proxy]
 
             # Find next available (non-burnt) proxy

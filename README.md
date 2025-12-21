@@ -58,6 +58,16 @@ curl -X POST "http://localhost:8000/process/youtube/dQw4w9WgXcQ" \
   -H "Authorization: Bearer $API_PASSWORD"
 ```
 
+### Proxy Rotation and Retry Behavior
+
+When multiple datacenter proxies are configured:
+
+- The system automatically rotates between available proxy IPs for each download
+- If a proxy fails (e.g., due to YouTube's bot detection), it is marked as "burnt" and temporarily excluded for 1 hour
+- Downloads automatically retry with different proxy IPs when available
+- The `/progress` endpoint will show `status: "retrying"` during proxy rotation attempts
+- Consumers can monitor the job's progress through the SSE stream at `/jobs/{video_id}/stream` to observe retry attempts
+
 ## Development workflow
 
 Use the supplied development tooling to keep the project consistent:
