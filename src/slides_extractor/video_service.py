@@ -65,6 +65,9 @@ class JobResult(BaseModel):
 JOBS: dict[str, dict[str, Any]] = {}
 JOBS_LOCK = asyncio.Lock()
 
+# Report frame analysis progress every N frames to avoid excessive updates
+FRAME_REPORT_INTERVAL = 100
+
 logger = logging.getLogger(__name__)
 
 
@@ -238,8 +241,8 @@ async def _detect_static_segments(
             continue
 
         total_frames_seen = total_frames
-        # Report every 100 frames to avoid too many updates
-        if frame_idx - last_frame_reported >= 100:
+        # Report every N frames to avoid too many updates
+        if frame_idx - last_frame_reported >= FRAME_REPORT_INTERVAL:
             await update_job_status(
                 video_id,
                 JobStatus.extracting,
