@@ -11,6 +11,7 @@ import requests
 import yt_dlp
 
 from slides_extractor.job_tracker import remove_progress_entry, update_progress
+from slides_extractor.proxy_manager import ProxyManager
 from slides_extractor.settings import (
     DATACENTER_PROXY,
     DEFAULT_USER_AGENT,
@@ -26,6 +27,17 @@ from slides_extractor.settings import (
 )
 
 logger = logging.getLogger("scraper")
+
+# Global proxy manager instance
+_proxy_manager: Optional[ProxyManager] = None
+
+
+def _get_proxy_manager() -> ProxyManager:
+    """Get or create the global proxy manager instance."""
+    global _proxy_manager
+    if _proxy_manager is None:
+        _proxy_manager = ProxyManager(DATACENTER_PROXY)
+    return _proxy_manager
 
 
 class YoutubeDLParams(TypedDict, total=False):
@@ -180,14 +192,14 @@ def get_stream_urls(
 
 
 def _get_proxy_config() -> Dict[str, str]:
-    """Normalize proxy configuration from environment variables."""
-
-    if DATACENTER_PROXY and len(DATACENTER_PROXY) > 5:
-        clean_proxy = DATACENTER_PROXY.strip()
-        if not clean_proxy.startswith("http"):
-            clean_proxy = f"http://{clean_proxy}"
-        return {"http": clean_proxy, "https": clean_proxy}
-    return {}
+    """Get the next available proxy from the proxy manager.
+    
+    Returns:
+        A dictionary with 'http' and 'https' keys, or empty dict if no proxy available.
+    """
+    proxy_manager = _get_proxy_manager()
+    proxy = proxy_manager.get_next_proxy()
+    return proxy if proxy else {}
 
 
 def _get_default_headers() -> Dict[str, str]:
@@ -296,47 +308,111 @@ def _merge_chunks(temp_parts: list[str], target_path: str) -> None:
                 os.remove(part)
 
 
+def _mark_proxy_burnt(proxies: Dict[str, str]) -> None:
+    """Mark a proxy as burnt so it won't be used temporarily."""
+    if proxies:
+        proxy_manager = _get_proxy_manager()
+        proxy_manager.mark_burnt(proxies)
+
+
 def download_file_parallel(
     url: str, filename: str, num_threads: int = VIDEO_DOWNLOAD_THREADS
 ) -> DownloadResult:
-    """Download a file using multiple threads, falling back to single-threaded mode."""
+    """Download a file using multiple threads, falling back to single-threaded mode.
+    
+    Retries with different proxy IPs if available when download fails.
+    """
 
     path = os.path.join(DOWNLOAD_DIR, filename)
-    proxies = _get_proxy_config()
-    connection_mode = "Proxy" if proxies else "Direct"
-    logger.info(f"Using {connection_mode} connection for {filename}")
+    proxy_manager = _get_proxy_manager()
+    max_retries = max(1, proxy_manager.get_proxy_count())
+    
+    for attempt in range(max_retries):
+        proxies = _get_proxy_config()
+        connection_mode = "Proxy" if proxies else "Direct"
+        
+        if attempt > 0:
+            logger.info(
+                f"Retry {attempt}/{max_retries - 1} for {filename} "
+                f"using {connection_mode} connection (bypassing bot detection)"
+            )
+        else:
+            logger.info(f"Using {connection_mode} connection for {filename}")
 
-    headers = _get_default_headers()
-    total_size = get_file_size(url, headers, proxies)
+        headers = _get_default_headers()
+        
+        try:
+            total_size = get_file_size(url, headers, proxies)
+        except Exception as exc:
+            logger.warning(f"Failed to get file size with current proxy: {exc}")
+            if proxies:
+                _mark_proxy_burnt(proxies)
+            if attempt < max_retries - 1:
+                continue
+            return DownloadResult(success=False, error=f"Failed to get file size: {exc}")
 
-    if _should_use_single_thread(total_size):
-        logger.warning(f"Size {total_size} too small/unknown. Using Single Thread.")
-        return download_file_single(url, filename, proxies)
+        if _should_use_single_thread(total_size):
+            logger.warning(f"Size {total_size} too small/unknown. Using Single Thread.")
+            result = download_file_single(url, filename, proxies, attempt, max_retries)
+            if not result.success and proxies and attempt < max_retries - 1:
+                _mark_proxy_burnt(proxies)
+                continue
+            return result
 
-    update_progress(filename, total_size=total_size, status="downloading")
-    logger.info(
-        f"PARALLEL START: {filename} ({total_size / (1024 * 1024):.1f} MB) | {num_threads} Threads"
+        update_progress(filename, total_size=total_size, status="downloading")
+        logger.info(
+            f"PARALLEL START: {filename} ({total_size / (1024 * 1024):.1f} MB) | {num_threads} Threads"
+        )
+
+        temp_parts = _download_chunks_parallel(
+            url, filename, total_size, num_threads, proxies, headers
+        )
+        
+        if temp_parts is None:
+            logger.error(f"Parallel download failed for {filename}")
+            if proxies and attempt < max_retries - 1:
+                _mark_proxy_burnt(proxies)
+                update_progress(filename, status="retrying")
+                continue
+            return DownloadResult(success=False, error="Parallel download failed")
+
+        _merge_chunks(temp_parts, path)
+        update_progress(filename, status="complete")
+        logger.info(f"SAVED: {filename}")
+        return DownloadResult(success=True, path=path)
+    
+    return DownloadResult(
+        success=False, 
+        error="All proxy attempts exhausted"
     )
-
-    temp_parts = _download_chunks_parallel(
-        url, filename, total_size, num_threads, proxies, headers
-    )
-    if temp_parts is None:
-        return DownloadResult(success=False, error="Parallel download failed")
-
-    _merge_chunks(temp_parts, path)
-    update_progress(filename, status="complete")
-    logger.info(f"SAVED: {filename}")
-    return DownloadResult(success=True, path=path)
 
 
 def download_file_single(
-    url: str, filename: str, proxies: Dict[str, str]
+    url: str, filename: str, proxies: Dict[str, str], attempt: int = 0, max_retries: int = 1
 ) -> DownloadResult:
+    """Download a file using a single thread.
+    
+    Args:
+        url: URL to download from
+        filename: Name of the file to save
+        proxies: Proxy configuration to use
+        attempt: Current retry attempt number
+        max_retries: Maximum number of retry attempts
+    
+    Returns:
+        DownloadResult indicating success or failure
+    """
     path = os.path.join(DOWNLOAD_DIR, filename)
     headers = _get_default_headers()
 
-    logger.info(f"SINGLE THREAD START: {filename}")
+    if attempt > 0:
+        logger.info(
+            f"SINGLE THREAD RETRY {attempt}/{max_retries - 1}: {filename} "
+            "(bypassing bot detection)"
+        )
+    else:
+        logger.info(f"SINGLE THREAD START: {filename}")
+    
     try:
         with requests.get(
             url, headers=headers, proxies=proxies, stream=True, timeout=(20, 120)
