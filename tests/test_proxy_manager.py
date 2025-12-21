@@ -1,5 +1,6 @@
 """Tests for ProxyManager."""
 
+import threading
 import time
 from unittest.mock import patch
 
@@ -166,8 +167,6 @@ class TestProxyManager:
 
     def test_concurrent_access(self):
         """Test that proxy manager is thread-safe."""
-        import threading
-
         manager = ProxyManager("proxy1.com:8080,proxy2.com:8080,proxy3.com:8080")
         results = []
 

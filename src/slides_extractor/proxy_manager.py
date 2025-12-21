@@ -7,6 +7,9 @@ from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# Constants
+ONE_HOUR_IN_SECONDS = 60 * 60
+
 
 class ProxyManager:
     """Manages multiple proxy IPs with burnt IP tracking and rotation.
@@ -19,7 +22,7 @@ class ProxyManager:
     """
 
     # Time in seconds to exclude a burnt IP before allowing retry (1 hour)
-    BURNT_IP_COOLDOWN_SECONDS = 3600
+    BURNT_IP_COOLDOWN_SECONDS = ONE_HOUR_IN_SECONDS
 
     def __init__(self, proxy_config: Optional[str] = None):
         """Initialize the proxy manager with optional proxy configuration.

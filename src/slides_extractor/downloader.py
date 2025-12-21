@@ -345,7 +345,7 @@ def download_file_parallel(
 
         try:
             total_size = get_file_size(url, headers, proxies)
-        except Exception as exc:
+        except requests.RequestException as exc:
             logger.warning(f"Failed to get file size with current proxy: {exc}")
             if proxies:
                 _mark_proxy_burnt(proxies)
@@ -385,7 +385,13 @@ def download_file_parallel(
         logger.info(f"SAVED: {filename}")
         return DownloadResult(success=True, path=path)
 
-    return DownloadResult(success=False, error="All proxy attempts exhausted")
+    error_msg = (
+        f"Failed to download after trying all {proxy_count} configured proxy/proxies. "
+        "Check proxy configuration or wait for burnt IPs to cool down."
+        if proxy_count > 0
+        else "Download failed with direct connection."
+    )
+    return DownloadResult(success=False, error=error_msg)
 
 
 def download_file_single(
