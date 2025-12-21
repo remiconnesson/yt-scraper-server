@@ -137,6 +137,8 @@ async def update_job_status(
     async with JOBS_LOCK:
         job_entry = JOBS.setdefault(
             video_id,
+            # TODO: This is important to be documented in the README.md.
+            # This is part of the public contract
             {
                 "status": status,
                 "progress": progress,
@@ -237,6 +239,9 @@ async def _detect_static_segments(
                 video_id,
                 JobStatus.extracting,
                 progress,
+                # TODO: frame_idx should be surfaced in the payload to be consumed by the frontend.
+                # (the message below is cute, but the raw count is more versatile for UI design)
+                # also... should be +1
                 f"Analyzing frames: {segment_count} segments, frame {frame_idx}/{total_frames}",
                 frame_count=total_frames,
             )
