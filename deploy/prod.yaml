@@ -1,3 +1,18 @@
+# Kubernetes Deployment Configuration for Slides Extractor
+#
+# SECURITY WARNING:
+# - This file should NOT contain actual secrets or credentials
+# - All secrets must be stored in Kubernetes Secrets (see SECURITY.md)
+# - Update the domain name (example.com) before deploying to production
+# - Update the image registry and tag to match your deployment
+#
+# To create required secrets before applying this manifest:
+#   kubectl create secret generic slides-extractor-secrets \
+#     --from-literal=ZYTE_API_KEY=your_actual_key \
+#     --from-literal=BLOB_READ_WRITE_TOKEN=your_actual_token \
+#     --from-literal=API_PASSWORD=your_actual_password \
+#     --from-literal=DATACENTER_PROXY=your_actual_proxy
+#
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -96,10 +111,10 @@ spec:
   ingressClassName: traefik
   tls:
   - hosts:
-    - slides-extractor.remtoolz.ai
+    - slides-extractor.example.com  # CHANGE THIS to your domain
     secretName: slides-extractor-tls
   rules:
-  - host: slides-extractor.remtoolz.ai
+  - host: slides-extractor.example.com  # CHANGE THIS to your domain
     http:
       paths:
       - path: /

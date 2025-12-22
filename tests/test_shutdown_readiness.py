@@ -26,7 +26,7 @@ def test_readiness_probe_reflects_drain_state():
     reset_shutdown_state()
 
     with TestClient(app) as client:
-        client.headers.update({"Authorization": "Bearer testpassword"})
+        client.headers.update({"Authorization": "Bearer testpassword"})  # noqa: S106
 
         ready_response = client.get("/healthz/ready")
         assert ready_response.status_code == 200
@@ -47,7 +47,7 @@ def test_process_rejects_when_draining():
     reset_shutdown_state()
 
     with TestClient(app) as client:
-        client.headers.update({"Authorization": "Bearer testpassword"})
+        client.headers.update({"Authorization": "Bearer testpassword"})  # noqa: S106
 
         drain_response = client.post("/drain")
         assert drain_response.status_code == 202
