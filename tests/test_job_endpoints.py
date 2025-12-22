@@ -3,14 +3,14 @@ import os
 
 from fastapi.testclient import TestClient
 
-os.environ["API_PASSWORD"] = "testpassword"
+os.environ["API_PASSWORD"] = "testpassword"  # noqa: S105
 
 from slides_extractor.app_factory import app
 from slides_extractor.video_service import JOBS, JOBS_LOCK, JobStatus, update_job_status
 
 
 client = TestClient(app)
-client.headers.update({"Authorization": "Bearer testpassword"})
+client.headers.update({"Authorization": "Bearer testpassword"})  # noqa: S106
 
 
 def _clear_jobs() -> None:

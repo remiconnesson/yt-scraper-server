@@ -6,6 +6,17 @@ A python package with several concerns:
 3. Uploading slides to Vercel Blob Storage with a deterministic naming strategy
 4. Running a webserver and updating clients about the progress of downloads and extraction
 
+## ⚠️ Security Notice
+
+**This is a public repository. NEVER commit secrets, API keys, passwords, or tokens to this repository.**
+
+Before using this application:
+1. Read [SECURITY.md](SECURITY.md) for security best practices
+2. Copy `.env.example` to `.env` and configure your credentials
+3. Verify that `.env` is gitignored before committing any changes
+
+All sensitive configuration should be stored in environment variables, not in code.
+
 ## Requirements
 
 - Python 3.13+
@@ -20,13 +31,27 @@ A python package with several concerns:
    uv sync --dev
    ```
 
-2. Configure environment variables (create a `.env` file or export directly):
+2. Configure environment variables:
 
+   **Important:** Use the provided `.env.example` as a template to create your own `.env` file:
+
+   ```bash
+   cp .env.example .env
+   # Edit .env with your actual credentials
+   ```
+
+   Required environment variables:
    - `ZYTE_API_KEY` (required for Zyte proxy usage)
-   - `ZYTE_HOST` (defaults to `api.zyte.com`)
-   - `DATACENTER_PROXY` (optional `user:pass@host:port` or full URL)
    - `API_PASSWORD` (required for authenticating API requests)
    - `BLOB_READ_WRITE_TOKEN` (required for Vercel Blob upload)
+
+   Optional environment variables:
+   - `ZYTE_HOST` (defaults to `api.zyte.com`)
+   - `DATACENTER_PROXY` (optional `user:pass@host:port` or full URL)
+   - `SLIDE_IMAGE_QUALITY` (defaults to 80)
+   - `DOWNLOAD_RETENTION_HOURS` (defaults to 24)
+
+   **See [SECURITY.md](SECURITY.md) for detailed security guidelines.**
 
    **Note:** Vercel Blob uploads follow a deterministic naming strategy: `slides/{videoId}/{slideIndex}-{framePosition}.webp` and `manifests/{videoId}`.
 

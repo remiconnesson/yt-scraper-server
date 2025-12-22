@@ -154,6 +154,8 @@ activemq-data/
 
 # Environments
 .env
+.env.local
+.env.*.local
 .envrc
 .venv
 env/
@@ -161,6 +163,17 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Secrets and credentials
+secrets.yaml
+secrets.yml
+*-secrets.yaml
+*-secrets.yml
+*.secret
+*.key
+*.pem
+*.p12
+*.pfx
 
 # Spyder project settings
 .spyderproject
