@@ -13,7 +13,8 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import StreamingResponse
 
-from slides_extractor.downloader import DOWNLOAD_DIR, cleanup_old_downloads
+from slides_extractor.downloader import cleanup_old_downloads
+from slides_extractor.settings import DOWNLOAD_DIR
 from slides_extractor.job_tracker import (
     has_active_progress_entries,
     progress_snapshot,
