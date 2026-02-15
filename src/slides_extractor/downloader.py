@@ -5,7 +5,12 @@ import subprocess
 import time
 from typing import Optional
 
-from slides_extractor.job_tracker import remove_progress_entry, update_progress
+from slides_extractor.job_tracker import (
+    JOB_PROGRESS,
+    PROGRESS_LOCK,
+    remove_progress_entry,
+    update_progress,
+)
 from slides_extractor.settings import (
     DATACENTER_PROXY,
     DOWNLOAD_DIR,
@@ -56,13 +61,22 @@ def _normalize_proxy(proxy: Optional[str]) -> Optional[str]:
     if not proxy or len(proxy) <= 5:
         return None
     clean = proxy.strip()
-    if not re.match(r"^[a-zA-Z]+://", clean):
+    if not re.match(r"^[a-zA-Z0-9]+://", clean):
         clean = f"http://{clean}"
     return clean
 
 
+def _rename_progress_entry(old_key: str, new_key: str) -> None:
+    """Atomically move a progress entry from *old_key* to *new_key*."""
+    with PROGRESS_LOCK:
+        entry = JOB_PROGRESS.pop(old_key, None)
+        if entry is not None:
+            JOB_PROGRESS[new_key] = entry
+
+
 def download_video_with_ytdlp(
     video_url: str,
+    video_id: str,
     filename_prefix: str = "yt",
 ) -> DownloadResult:
     """Download a YouTube video using yt-dlp CLI (via ``uv run``).
@@ -103,7 +117,10 @@ def download_video_with_ytdlp(
     if proxy:
         cmd.extend(["--proxy", proxy])
 
-    progress_key = os.path.basename(outtmpl)
+    # Use video_id as progress key while downloading — it's a stable,
+    # known identifier.  We rename the entry to the real filename once
+    # yt-dlp finishes and we know the output path.
+    progress_key = video_id
     logger.info("yt-dlp download start: %s", video_url)
     update_progress(progress_key, status="downloading")
 
@@ -142,6 +159,10 @@ def download_video_with_ytdlp(
         update_progress(progress_key, status="failed")
         return DownloadResult(False, error="yt-dlp succeeded but output file not found")
 
-    update_progress(os.path.basename(path), status="complete")
+    # Rename progress entry from video_id to the actual filename so that
+    # cleanup_old_downloads and progress_snapshot report the real file.
+    final_key = os.path.basename(path)
+    _rename_progress_entry(progress_key, final_key)
+    update_progress(final_key, status="complete")
     logger.info("yt-dlp saved: %s", path)
     return DownloadResult(True, path=path)

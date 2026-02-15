@@ -28,7 +28,7 @@ def process_video_task(
     )
     logger.info(f"Job Started: {video_url}")
     try:
-        video_result = download_video_with_ytdlp(video_url)
+        video_result = download_video_with_ytdlp(video_url, video_id=video_id)
 
         if not video_result.success:
             logger.error(f"Video download failed: {video_result.error}")
