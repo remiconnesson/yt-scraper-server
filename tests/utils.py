@@ -1,3 +1,4 @@
+from typing import cast
 import cv2
 import numpy as np
 
@@ -67,6 +68,6 @@ def create_test_video(
                 3,
             )
 
-        out.write(frame)
+        out.write(cast(cv2.typing.MatLike, frame))
 
     out.release()

@@ -223,7 +223,7 @@ class FrameStreamer:
 
                 if curr_time >= next_time:
                     # Resize if needed
-                    h, w = frame.shape[:2]  # type: ignore[union-attr]
+                    h, w = frame.shape[:2]
                     if w > self.max_width:
                         scale = self.max_width / w
                         frame = cv2.resize(frame, (self.max_width, int(h * scale)))

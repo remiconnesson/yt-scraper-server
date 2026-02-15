@@ -1,7 +1,7 @@
 # Slides Extractor
 
 A python package with several concerns:
-1. Downloading YouTube videos and audio streams
+1. Downloading YouTube videos via `yt-dlp` (cookies + remote components + optional proxy)
 2. Extracting slides from videos frames
 3. Uploading slides to Vercel Blob Storage with a deterministic naming strategy
 4. Running a webserver and updating clients about the progress of downloads and extraction
@@ -10,7 +10,7 @@ A python package with several concerns:
 
 - Python 3.13+
 - [uv](https://github.com/astral-sh/uv) for dependency management
-- Zyte API key and datacenter proxy for remote fetching of YouTube videos
+- Datacenter proxy and optional cookies file for yt-dlp YouTube downloads
 
 ## Quickstart
 
@@ -22,9 +22,9 @@ A python package with several concerns:
 
 2. Configure environment variables (create a `.env` file or export directly):
 
-   - `ZYTE_API_KEY` (required for Zyte proxy usage)
-   - `ZYTE_HOST` (defaults to `api.zyte.com`)
-   - `DATACENTER_PROXY` (optional `user:pass@host:port` or full URL)
+   - `DATACENTER_PROXY` (optional `user:pass@host:port` or full URL for `yt-dlp --proxy`)
+   - `YT_COOKIES_PATH` (optional, defaults to `yt_cookies.txt`)
+   - `YT_DLP_REMOTE_COMPONENTS` (optional, defaults to `ejs:github`)
    - `API_PASSWORD` (required for authenticating API requests)
    - `BLOB_READ_WRITE_TOKEN` (required for Vercel Blob upload)
 
