@@ -7,14 +7,15 @@ def test_download_youtube_with_ytdlp_success(monkeypatch, tmp_path):
     output_file = tmp_path / "abc123.mp4"
     output_file.write_bytes(b"video")
 
-    recorded = {}
+    recorded: dict[str, list[str]] = {}
+
+    def fake_check_output(cmd, **kwargs):
+        recorded["get_filename_cmd"] = cmd
+        return f"{output_file}\n"
 
     def fake_run(cmd, **kwargs):
-        recorded["cmd"] = cmd
-        return SimpleNamespace(
-            returncode=0,
-            stdout=f"[download] Destination: {output_file}\n",
-        )
+        recorded["download_cmd"] = cmd
+        return SimpleNamespace(returncode=0, stdout="ok")
 
     statuses: list[tuple[str, str]] = []
 
@@ -23,6 +24,7 @@ def test_download_youtube_with_ytdlp_success(monkeypatch, tmp_path):
             statuses.append((name, status))
 
     monkeypatch.setattr(downloader, "DOWNLOAD_DIR", str(tmp_path))
+    monkeypatch.setattr(downloader.subprocess, "check_output", fake_check_output)
     monkeypatch.setattr(downloader.subprocess, "run", fake_run)
     monkeypatch.setattr(downloader, "update_progress", fake_update)
 
@@ -35,13 +37,46 @@ def test_download_youtube_with_ytdlp_success(monkeypatch, tmp_path):
 
     assert result.success is True
     assert result.path == str(output_file)
-    assert "--proxy" in recorded["cmd"]
-    assert "http://user:pass@127.0.0.1:3128" in recorded["cmd"]
-    assert statuses[0][1] == "downloading"
-    assert statuses[-1] == (output_file.name, "complete")
+
+    assert "--get-filename" in recorded["get_filename_cmd"]
+    assert "--proxy" in recorded["get_filename_cmd"]
+    assert "http://user:pass@127.0.0.1:3128" in recorded["get_filename_cmd"]
+
+    assert "--proxy" in recorded["download_cmd"]
+    assert "http://user:pass@127.0.0.1:3128" in recorded["download_cmd"]
+
+    expected_progress = [
+        (output_file.name, "downloading"),
+        (output_file.name, "complete"),
+    ]
+    assert statuses == expected_progress
+
+
+def test_download_youtube_with_ytdlp_filename_resolution_failure(monkeypatch, tmp_path):
+    def fake_check_output(cmd, **kwargs):
+        raise downloader.subprocess.CalledProcessError(
+            2,
+            cmd,
+            stderr="bad output",
+        )
+
+    monkeypatch.setattr(downloader, "DOWNLOAD_DIR", str(tmp_path))
+    monkeypatch.setattr(downloader.subprocess, "check_output", fake_check_output)
+
+    result = downloader.download_youtube_with_ytdlp(
+        "S2GChOwivwQ", filename_prefix="abc"
+    )
+
+    assert result.success is False
+    assert result.error == "Failed to determine filename with yt-dlp: exit 2"
 
 
 def test_download_youtube_with_ytdlp_failure(monkeypatch, tmp_path):
+    output_file = tmp_path / "abc123.mp4"
+
+    def fake_check_output(cmd, **kwargs):
+        return f"{output_file}\n"
+
     def fake_run(cmd, **kwargs):
         return SimpleNamespace(returncode=1, stdout="boom")
 
@@ -52,6 +87,7 @@ def test_download_youtube_with_ytdlp_failure(monkeypatch, tmp_path):
             statuses.append((name, status))
 
     monkeypatch.setattr(downloader, "DOWNLOAD_DIR", str(tmp_path))
+    monkeypatch.setattr(downloader.subprocess, "check_output", fake_check_output)
     monkeypatch.setattr(downloader.subprocess, "run", fake_run)
     monkeypatch.setattr(downloader, "update_progress", fake_update)
 
@@ -61,7 +97,7 @@ def test_download_youtube_with_ytdlp_failure(monkeypatch, tmp_path):
 
     assert result.success is False
     assert result.error == "yt-dlp exited with 1"
-    assert statuses[-1][1] == "failed"
+    assert statuses[-1] == (output_file.name, "failed")
 
 
 def test_normalize_proxy_adds_scheme():

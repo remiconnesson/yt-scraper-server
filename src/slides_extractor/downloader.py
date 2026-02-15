@@ -143,37 +143,76 @@ def download_youtube_with_ytdlp(
     """Download a YouTube video using yt-dlp CLI via uv."""
 
     _ensure_dir(DOWNLOAD_DIR)
-    video = video.strip()
+    normalized_video = video.strip()
     outtmpl = os.path.join(DOWNLOAD_DIR, f"{filename_prefix}_%(id)s.%(ext)s")
+    normalized_proxy = _normalize_proxy(proxy)
 
-    cmd = [
-        "uv",
-        "run",
-        "yt-dlp",
-        "-v",
-        video,
+    shared_args = [
         "-f",
         format_spec,
         "--cookies",
         cookies_path,
         "--remote-components",
         remote_components,
+        "-o",
+        outtmpl,
+    ]
+    if normalized_proxy:
+        shared_args.extend(["--proxy", normalized_proxy])
+
+    get_filename_cmd = [
+        "uv",
+        "run",
+        "yt-dlp",
+        "--get-filename",
+        normalized_video,
+        *shared_args,
+    ]
+
+    try:
+        filename_output = subprocess.check_output(
+            get_filename_cmd,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        stderr_output = exc.stderr[-4000:] if isinstance(exc.stderr, str) else str(exc)
+        logger.error(
+            "yt-dlp failed to get filename (%s): %s", exc.returncode, stderr_output
+        )
+        return DownloadResult(
+            False,
+            error=f"Failed to determine filename with yt-dlp: exit {exc.returncode}",
+        )
+    except OSError as exc:
+        logger.error("yt-dlp failed to get filename: %s", exc)
+        return DownloadResult(
+            False, error=f"Failed to determine filename with yt-dlp: {exc}"
+        )
+
+    final_path = (
+        filename_output.strip().splitlines()[-1] if filename_output.strip() else ""
+    )
+    if not final_path:
+        return DownloadResult(False, error="Failed to determine filename with yt-dlp")
+
+    tracking_name = os.path.basename(final_path)
+    update_progress(tracking_name, status="downloading")
+    logger.info("yt-dlp download start: %s -> %s", normalized_video, tracking_name)
+
+    cmd = [
+        "uv",
+        "run",
+        "yt-dlp",
+        "-v",
+        normalized_video,
+        *shared_args,
         "--no-part",
         "--retries",
         "5",
         "--fragment-retries",
         "5",
-        "-o",
-        outtmpl,
     ]
-
-    normalized_proxy = _normalize_proxy(proxy)
-    if normalized_proxy:
-        cmd.extend(["--proxy", normalized_proxy])
-
-    tracking_name = os.path.basename(outtmpl)
-    update_progress(tracking_name, status="downloading")
-    logger.info("yt-dlp download start: %s", video)
 
     try:
         proc = subprocess.run(
@@ -192,25 +231,15 @@ def download_youtube_with_ytdlp(
         update_progress(tracking_name, status="failed")
         return DownloadResult(False, error=f"yt-dlp exited with {proc.returncode}")
 
-    destinations = re.findall(
-        r"^\[download\] Destination:\s+(.*)$", proc.stdout, re.MULTILINE
-    )
-    path = destinations[-1].strip() if destinations else None
-
-    if path is None:
-        candidates = [
-            os.path.join(DOWNLOAD_DIR, name)
-            for name in os.listdir(DOWNLOAD_DIR)
-            if name.startswith(f"{filename_prefix}_")
-        ]
-        if candidates:
-            path = max(candidates, key=os.path.getmtime)
-
-    if path is None or not os.path.exists(path):
+    if not os.path.exists(final_path):
         update_progress(tracking_name, status="failed")
+        logger.error(
+            "yt-dlp succeeded but output file not found: %s\n%s",
+            final_path,
+            proc.stdout[-4000:],
+        )
         return DownloadResult(False, error="yt-dlp succeeded but output file not found")
 
-    final_path = str(path)
-    update_progress(os.path.basename(final_path), status="complete")
+    update_progress(tracking_name, status="complete")
     logger.info("yt-dlp saved: %s", final_path)
     return DownloadResult(True, path=final_path)
