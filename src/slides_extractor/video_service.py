@@ -436,6 +436,9 @@ def _build_segments_manifest(
             entry["first_frame"] = first_frame
             entry["last_frame"] = static_meta.get("last_frame")
 
+            if first_frame and first_frame.get("url"):
+                entry["url"] = first_frame["url"]
+
         manifest_segments.append(entry)
 
     return {
@@ -498,6 +501,50 @@ async def extract_and_process_frames(
     )
 
     return segment_metadata
+
+
+async def list_processed_videos(
+    cursor: Optional[str] = None,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """List processed video manifests from Vercel Blob with cursor-based pagination."""
+
+    from slides_extractor.settings import BLOB_READ_WRITE_TOKEN
+
+    if not BLOB_READ_WRITE_TOKEN:
+        return {"videos": [], "cursor": None, "has_more": False}
+
+    try:
+        client = AsyncBlobClient()
+        response = await client.list_objects(
+            prefix="manifests/",
+            limit=limit,
+            cursor=cursor,
+        )
+
+        videos = []
+        for blob in response.blobs:
+            # Extract video_id from pathname like "manifests/{video_id}.json"
+            pathname = blob.pathname
+            if pathname.startswith("manifests/") and pathname.endswith(".json"):
+                video_id = pathname[len("manifests/") : -len(".json")]
+                videos.append(
+                    {
+                        "video_id": video_id,
+                        "url": blob.url,
+                        "size": blob.size,
+                        "uploaded_at": blob.uploaded_at.isoformat(),
+                    }
+                )
+
+        return {
+            "videos": videos,
+            "cursor": response.cursor,
+            "has_more": response.has_more,
+        }
+    except Exception as exc:
+        logger.warning("Failed to list processed videos from Vercel Blob: %s", exc)
+        return {"videos": [], "cursor": None, "has_more": False}
 
 
 async def check_blob_job_exists(video_id: str) -> str | None:

@@ -13,7 +13,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import StreamingResponse
 
-from slides_extractor.downloader import DOWNLOAD_DIR, cleanup_old_downloads
+from slides_extractor.downloader import cleanup_old_downloads
 from slides_extractor.job_tracker import (
     has_active_progress_entries,
     progress_snapshot,
@@ -25,6 +25,7 @@ from slides_extractor.video_service import (
     JobStatus,
     check_blob_job_exists,
     has_active_jobs,
+    list_processed_videos,
     stream_job_progress,
     update_job_status,
 )
@@ -196,6 +197,7 @@ def home():
             "progress": "/progress",
             "job_status": "/jobs/{video_id}",
             "job_stream": "/jobs/{video_id}/stream",
+            "processed_videos": "/videos/processed",
         },
     }
 
@@ -326,11 +328,12 @@ def view_logs():
     return {"error": "Log file empty or missing"}
 
 
-@app.get("/list", dependencies=AUTH_DEPENDENCIES)
-def list_files():
-    files = os.listdir(DOWNLOAD_DIR)
-    data = [{"filename": f, "url": f"/files/{f}"} for f in files]
-    return {"files": data}
+@app.get("/videos/processed", dependencies=AUTH_DEPENDENCIES)
+async def get_processed_videos(
+    cursor: str | None = None,
+    limit: int = 20,
+):
+    return await list_processed_videos(cursor=cursor, limit=limit)
 
 
 logger.info("FastAPI application created")
