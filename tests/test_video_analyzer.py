@@ -68,7 +68,7 @@ def create_synthetic_stream(
     return frames
 
 
-def stream_helper(frames: list[FrameData]):  # type: ignore[no-untyped-def]
+def stream_helper(frames: list[FrameData]):
     """Yield frames with a consistent total count for the detector."""
 
     total = len(frames)

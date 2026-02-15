@@ -45,6 +45,8 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 ZYTE_API_KEY = os.getenv("ZYTE_API_KEY")
 ZYTE_HOST = os.getenv("ZYTE_HOST", "api.zyte.com")
 DATACENTER_PROXY = os.getenv("DATACENTER_PROXY")
+YT_COOKIES_PATH = os.getenv("YT_COOKIES_PATH", "yt_cookies.txt")
+YT_DLP_REMOTE_COMPONENTS = os.getenv("YT_DLP_REMOTE_COMPONENTS", "ejs:github")
 
 try:
     SLIDE_IMAGE_QUALITY = int(os.getenv("SLIDE_IMAGE_QUALITY", "80"))
