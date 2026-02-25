@@ -65,6 +65,9 @@ class JobResult(BaseModel):
 JOBS: dict[str, dict[str, Any]] = {}
 JOBS_LOCK = asyncio.Lock()
 
+# Report frame analysis progress every N frames to avoid excessive updates
+FRAME_REPORT_INTERVAL = 100
+
 logger = logging.getLogger(__name__)
 
 
@@ -107,27 +110,33 @@ def _compute_frame_hash(frame: np.ndarray) -> imagehash.ImageHash:
 async def update_job_status(
     video_id: str,
     status: JobStatus,
-    progress: float,
     message: str,
     metadata_uri: Optional[str] = None,
     error: Optional[str] = None,
     frame_count: Optional[int] = None,
+    current_frame: Optional[int] = None,
+    slides_processed: Optional[int] = None,
+    total_slides: Optional[int] = None,
+    download_phase: Optional[str] = None,
 ) -> dict[str, Any]:
     """Update the in-memory job status in a thread-safe manner.
 
-    Each update records the provided status, progress percentage, user-facing
-    message, metadata URI (when available), error context, and frame count.
-    Timestamps are stored in UTC ISO 8601 format. Access to the shared ``JOBS``
-    registry is protected by an ``asyncio.Lock`` to ensure thread safety.
+    Each update records the provided status, user-facing message, metadata URI
+    (when available), error context, and frame count. Timestamps are stored in
+    UTC ISO 8601 format. Access to the shared ``JOBS`` registry is protected by
+    an ``asyncio.Lock`` to ensure thread safety.
 
     Args:
         video_id: Unique identifier for the job being updated.
         status: Current job status value.
-        progress: Percentage completion for the job.
         message: Descriptive status message for clients.
         metadata_uri: Optional URI pointing to job metadata output.
         error: Optional error string describing failures.
-        frame_count: Optional count of frames processed for the job.
+        frame_count: Optional total count of frames in the video.
+        current_frame: Optional current frame being processed during extraction.
+        slides_processed: Optional count of slides processed during upload.
+        total_slides: Optional total count of slides to be uploaded.
+        download_phase: Optional download substate (e.g., "fetching_metadata", "downloading_video").
 
     Returns:
         A copy of the updated job record stored in ``JOBS``.
@@ -137,26 +146,30 @@ async def update_job_status(
     async with JOBS_LOCK:
         job_entry = JOBS.setdefault(
             video_id,
-            # TODO: This is important to be documented in the README.md.
-            # This is part of the public contract
             {
                 "status": status,
-                "progress": progress,
                 "message": message,
                 "updated_at": timestamp,
                 "metadata_uri": metadata_uri,
                 "error": error,
                 "frame_count": frame_count,
+                "current_frame": current_frame,
+                "slides_processed": slides_processed,
+                "total_slides": total_slides,
+                "download_phase": download_phase,
             },
         )
 
         job_entry["status"] = status
-        job_entry["progress"] = progress
         job_entry["message"] = message
         job_entry["updated_at"] = timestamp
         job_entry["metadata_uri"] = metadata_uri
         job_entry["error"] = error
         job_entry["frame_count"] = frame_count
+        job_entry["current_frame"] = current_frame
+        job_entry["slides_processed"] = slides_processed
+        job_entry["total_slides"] = total_slides
+        job_entry["download_phase"] = download_phase
 
         return dict(job_entry)
 
@@ -222,30 +235,26 @@ async def _detect_static_segments(
     await update_job_status(
         video_id,
         JobStatus.extracting,
-        0.0,
         "Starting frame analysis",
     )
 
-    last_progress = -1.0
+    last_frame_reported = -1
     total_frames_seen: Optional[int] = None
     for segment_count, frame_idx, total_frames in detector.analyze(streamer.stream()):
         if total_frames <= 0:
             continue
 
         total_frames_seen = total_frames
-        progress = min((frame_idx / total_frames) * 60.0, 60.0)
-        if progress - last_progress >= 1:
+        # Report every N frames to avoid too many updates
+        if frame_idx - last_frame_reported >= FRAME_REPORT_INTERVAL:
             await update_job_status(
                 video_id,
                 JobStatus.extracting,
-                progress,
-                # TODO: frame_idx should be surfaced in the payload to be consumed by the frontend.
-                # (the message below is cute, but the raw count is more versatile for UI design)
-                # also... should be +1
-                f"Analyzing frames: {segment_count} segments, frame {frame_idx}/{total_frames}",
+                f"Analyzing frames: {segment_count} segments detected",
                 frame_count=total_frames,
+                current_frame=frame_idx,
             )
-            last_progress = progress
+            last_frame_reported = frame_idx
 
     static_segments = [
         segment
@@ -341,16 +350,16 @@ async def _upload_segments(
 
     # 4. Finalize segment metadata
     segment_metadata: list[dict[str, Any]] = []
-    total_static = len(segments) or 1
+    total_static = len(segments)
 
     # TODO_LATER: start=1 is the source of the issue of off by one error in the frontend(keep for now, we need to backfill)
     for idx, seg_info in enumerate(segment_data_list, start=1):
-        progress = 60.0 + ((idx - 1) / total_static) * 35.0
         await update_job_status(
             video_id,
             JobStatus.uploading,
-            progress=progress,
-            message=f"Processing slide {idx}/{total_static}",
+            message=f"Processing slide {idx}",
+            slides_processed=idx,
+            total_slides=total_static,
         )
 
         segment = seg_info["segment"]
@@ -459,7 +468,6 @@ async def extract_and_process_frames(
         await update_job_status(
             video_id,
             JobStatus.completed,
-            100.0,
             "No static segments detected",
             frame_count=total_frames_seen,
         )
@@ -491,7 +499,6 @@ async def extract_and_process_frames(
     await update_job_status(
         video_id,
         JobStatus.completed,
-        100.0,
         "Frame extraction completed",
         frame_count=total_frames_seen,
         metadata_uri=metadata_uri,

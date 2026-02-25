@@ -35,7 +35,6 @@ def test_get_job_returns_latest_status() -> None:
         update_job_status(
             video_id,
             status=JobStatus.pending,
-            progress=10.0,
             message="Preparing",
         )
     )
@@ -45,7 +44,6 @@ def test_get_job_returns_latest_status() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == JobStatus.pending.value
-    assert payload["progress"] == 10.0
     assert payload["message"] == "Preparing"
 
 
@@ -55,7 +53,6 @@ def test_stream_job_sends_completion_event() -> None:
         update_job_status(
             video_id,
             status=JobStatus.completed,
-            progress=100.0,
             message="Done",
         )
     )
