@@ -1,0 +1,116 @@
+name: Security Checks
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run weekly security checks
+    - cron: '0 0 * * 0'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  secret-scanning:
+    name: Detect Secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better secret detection
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install detect-secrets
+        run: pip install detect-secrets
+
+      - name: Run detect-secrets scan
+        run: |
+          detect-secrets scan --baseline .secrets.baseline || \
+          detect-secrets scan --baseline .secrets.baseline --update || \
+          echo "Creating new baseline..." && \
+          detect-secrets scan > .secrets.baseline
+
+      - name: Audit secrets baseline
+        run: detect-secrets audit .secrets.baseline || true
+
+  dependency-check:
+    name: Dependency Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Sync dependencies
+        run: uv sync --dev
+
+      - name: Install safety
+        run: pip install safety
+
+      - name: Run safety check
+        run: safety check --json || true
+        continue-on-error: true
+
+  bandit-security:
+    name: Bandit Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install bandit
+        run: pip install bandit[toml]
+
+      - name: Run bandit security scan
+        run: bandit -r src/ -ll -f json -o bandit-report.json || true
+        continue-on-error: true
+
+      - name: Display bandit results
+        run: bandit -r src/ -ll || true
+        continue-on-error: true
+
+      - name: Upload bandit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-security-report
+          path: bandit-report.json
+
+  gitignore-check:
+    name: Verify .env is gitignored
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check .env is in .gitignore
+        run: |
+          if ! grep -q "^\.env$" .gitignore; then
+            echo "ERROR: .env is not in .gitignore!"
+            exit 1
+          fi
+          echo "✓ .env is properly gitignored"
+
+      - name: Check for accidentally committed .env files
+        run: |
+          if [ -f .env ]; then
+            echo "ERROR: .env file found in repository!"
+            exit 1
+          fi
+          echo "✓ No .env files in repository"

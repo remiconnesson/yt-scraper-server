@@ -1,0 +1,43 @@
+# Pre-commit hooks to prevent security issues
+# Install with: pip install pre-commit && pre-commit install
+# See https://pre-commit.com for more information
+
+repos:
+  # Detect hardcoded secrets
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: package.lock.json
+
+  # Basic file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: check-yaml
+        exclude: deploy/prod.yaml  # May contain domain-specific config
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: detect-private-key
+      - id: check-json
+
+  # Python-specific security checks
+  - repo: https://github.com/PyCQA/bandit
+    rev: '1.7.5'
+    hooks:
+      - id: bandit
+        args: ['-ll', '-i']  # Low severity, ignore issues in tests
+        files: ^src/
+
+  # Prevent committing .env files
+  - repo: local
+    hooks:
+      - id: check-env-files
+        name: Check for .env files
+        entry: bash -c 'git diff --cached --name-only | grep -E "^\.env$" && echo "ERROR: .env file should not be committed!" && exit 1 || exit 0'
+        language: system
+        pass_filenames: false
